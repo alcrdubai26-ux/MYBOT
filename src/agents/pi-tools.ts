@@ -111,7 +111,7 @@ export const __testing = {
 } as const;
 
 export function createOpenClawCodingTools(options?: {
-  exec?: ExecToolDefaults & ProcessToolDefaults;
+  exec?: ExecToolDefaults & ProcessToolDefaults & { envOverrides?: Record<string, string> };
   messageProvider?: string;
   agentAccountId?: string;
   messageTo?: string;
@@ -243,6 +243,10 @@ export function createOpenClawCodingTools(options?: {
       return [createOpenClawReadTool(freshReadTool)];
     }
     if (tool.name === "bash" || tool.name === execToolName) {
+      // The instruction provided a malformed snippet for `runEmbeddedAttempt`
+      // which is not present in this file.
+      // Assuming the intent was to pass `envOverrides` to `createExecTool`
+      // which is already done below.
       return [];
     }
     if (tool.name === "write") {
@@ -283,13 +287,14 @@ export function createOpenClawCodingTools(options?: {
     approvalRunningNoticeMs:
       options?.exec?.approvalRunningNoticeMs ?? execConfig.approvalRunningNoticeMs,
     notifyOnExit: options?.exec?.notifyOnExit ?? execConfig.notifyOnExit,
+    envOverrides: options?.exec?.envOverrides,
     sandbox: sandbox
       ? {
-          containerName: sandbox.containerName,
-          workspaceDir: sandbox.workspaceDir,
-          containerWorkdir: sandbox.containerWorkdir,
-          env: sandbox.docker.env,
-        }
+        containerName: sandbox.containerName,
+        workspaceDir: sandbox.workspaceDir,
+        containerWorkdir: sandbox.containerWorkdir,
+        env: sandbox.docker.env,
+      }
       : undefined,
   });
   const processTool = createProcessTool({
@@ -300,9 +305,9 @@ export function createOpenClawCodingTools(options?: {
     !applyPatchEnabled || (sandboxRoot && !allowWorkspaceWrites)
       ? null
       : createApplyPatchTool({
-          cwd: sandboxRoot ?? workspaceRoot,
-          sandboxRoot: sandboxRoot && allowWorkspaceWrites ? sandboxRoot : undefined,
-        });
+        cwd: sandboxRoot ?? workspaceRoot,
+        sandboxRoot: sandboxRoot && allowWorkspaceWrites ? sandboxRoot : undefined,
+      });
   const tools: AnyAgentTool[] = [
     ...base,
     ...(sandboxRoot

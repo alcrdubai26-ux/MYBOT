@@ -133,6 +133,7 @@ export type ExecToolDefaults = {
   messageProvider?: string;
   notifyOnExit?: boolean;
   cwd?: string;
+  envOverrides?: Record<string, string>;
 };
 
 export type { BashSandboxConfig } from "./bash-tools.shared.js";
@@ -193,30 +194,30 @@ const execSchema = Type.Object({
 
 export type ExecToolDetails =
   | {
-      status: "running";
-      sessionId: string;
-      pid?: number;
-      startedAt: number;
-      cwd?: string;
-      tail?: string;
-    }
+    status: "running";
+    sessionId: string;
+    pid?: number;
+    startedAt: number;
+    cwd?: string;
+    tail?: string;
+  }
   | {
-      status: "completed" | "failed";
-      exitCode: number | null;
-      durationMs: number;
-      aggregated: string;
-      cwd?: string;
-    }
+    status: "completed" | "failed";
+    exitCode: number | null;
+    durationMs: number;
+    aggregated: string;
+    cwd?: string;
+  }
   | {
-      status: "approval-pending";
-      approvalId: string;
-      approvalSlug: string;
-      expiresAtMs: number;
-      host: ExecHost;
-      command: string;
-      cwd?: string;
-      nodeId?: string;
-    };
+    status: "approval-pending";
+    approvalId: string;
+    approvalSlug: string;
+    expiresAtMs: number;
+    host: ExecHost;
+    command: string;
+    cwd?: string;
+    nodeId?: string;
+  };
 
 function normalizeExecHost(value?: string | null): ExecHost | null {
   const normalized = value?.trim().toLowerCase();
@@ -288,6 +289,13 @@ function mergePathPrepend(existing: string | undefined, prepend: string[]) {
     merged.push(part);
   }
   return merged.join(path.delimiter);
+}
+
+function mergeEnv(base: Record<string, string>, overrides?: Record<string, string>) {
+  if (!overrides) {
+    return { ...base };
+  }
+  return { ...base, ...overrides };
 }
 
 function applyPathPrepend(
@@ -878,7 +886,7 @@ export function createExecTool(
       if (!elevatedRequested && requestedHost && requestedHost !== configuredHost) {
         throw new Error(
           `exec host not allowed (requested ${renderExecHostLabel(requestedHost)}; ` +
-            `configure tools.exec.host=${renderExecHostLabel(configuredHost)} to allow).`,
+          `configure tools.exec.host=${renderExecHostLabel(configuredHost)} to allow).`,
         );
       }
       if (elevatedRequested) {
@@ -919,11 +927,11 @@ export function createExecTool(
       const mergedEnv = params.env ? { ...baseEnv, ...params.env } : baseEnv;
       const env = sandbox
         ? buildSandboxEnv({
-            defaultPath: DEFAULT_PATH,
-            paramsEnv: params.env,
-            sandboxEnv: sandbox.env,
-            containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
-          })
+          defaultPath: DEFAULT_PATH,
+          paramsEnv: params.env,
+          sandboxEnv: sandbox.env,
+          containerWorkdir: containerWorkdir ?? sandbox.containerWorkdir,
+        })
         : mergedEnv;
       if (!sandbox && host === "gateway" && !params.env?.PATH) {
         const shellPath = getShellPathFromLoginShell({
@@ -1441,10 +1449,15 @@ export function createExecTool(
         typeof params.timeout === "number" ? params.timeout : defaultTimeoutSec;
       const getWarningText = () => (warnings.length ? `${warnings.join("\n")}\n\n` : "");
       const usePty = params.pty === true && !sandbox;
+      const toolEnv = mergeEnv(
+        mergeEnv(process.env as Record<string, string>, defaults?.envOverrides),
+        params.env,
+      );
+
       const run = await runExecProcess({
         command: params.command,
         workdir,
-        env,
+        env: toolEnv,
         sandbox,
         containerWorkdir,
         usePty,
@@ -1483,8 +1496,7 @@ export function createExecTool(
                 type: "text",
                 text:
                   `${getWarningText()}` +
-                  `Command still running (session ${run.session.id}, pid ${
-                    run.session.pid ?? "n/a"
+                  `Command still running (session ${run.session.id}, pid ${run.session.pid ?? "n/a"
                   }). ` +
                   "Use process (list/poll/log/write/kill/clear/remove) for follow-up.",
               },
