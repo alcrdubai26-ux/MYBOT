@@ -2,8 +2,20 @@ import express from "express";
 import { registerRoutes } from "./routes.js";
 import { pool } from "./db/index.js";
 import { formatUncaughtError } from "../src/infra/errors.js";
+import { aiService } from "../src/services/ai.js";
 
 const app = express();
+
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    if (req.method === "OPTIONS") {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -22,7 +34,13 @@ app.use((req, res, next) => {
 
 (async () => {
     try {
-        // Register all routes
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+        if (GEMINI_API_KEY) {
+            aiService.initialize(GEMINI_API_KEY);
+        } else {
+            console.warn("[Server] GEMINI_API_KEY no configurada. El bot no podrá responder con IA.");
+        }
+
         registerRoutes(app);
 
         // Error handling middleware
@@ -32,7 +50,7 @@ app.use((req, res, next) => {
             res.status(status).json({ message });
         });
 
-        const PORT = Number(process.env.PORT) || 5000;
+        const PORT = Number(process.env.API_PORT) || 3000;
         app.listen(PORT, "0.0.0.0", () => {
             console.log(`[moltbot] Multi-tenant server running on port ${PORT}`);
         });

@@ -43,7 +43,12 @@ export function registerRoutes(app: Express) {
         res.json(connections);
     });
 
-    // WhatsApp Connect
+    app.get("/api/whatsapp/status", (req, res) => {
+        const handler = MultiTenantWhatsAppHandler.getInstance();
+        const connections = handler.getAllConnections();
+        res.json({ connections });
+    });
+
     app.post("/api/channels/whatsapp/connect", async (req, res) => {
         if (!req.isAuthenticated()) return res.sendStatus(401);
         const user = req.user as any;
@@ -63,7 +68,11 @@ export function registerRoutes(app: Express) {
 
         const handler = MultiTenantWhatsAppHandler.getInstance();
         const connection = await handler.connect(user.id, assistantId);
-        res.json({ status: connection?.status, qr: connection?.qr });
+        res.json({ 
+            status: connection?.status, 
+            qr: connection?.qrDataUrl,
+            hasQr: !!connection?.qrDataUrl
+        });
     });
 
     // Telegram Connect
