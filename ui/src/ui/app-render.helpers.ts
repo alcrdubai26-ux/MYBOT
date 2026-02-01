@@ -1,6 +1,8 @@
 import { html } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import type { AppViewState } from "./app-view-state";
+import type { Language } from "./i18n.js";
+import { t } from "./i18n.js";
 import type { ThemeMode } from "./theme";
 import type { ThemeTransitionContext } from "./theme-transition";
 import type { SessionsListResult } from "./types";
@@ -326,5 +328,42 @@ function renderMonitorIcon() {
       <line x1="8" x2="16" y1="21" y2="21"></line>
       <line x1="12" x2="12" y1="17" y2="21"></line>
     </svg>
+  `;
+}
+
+const LANG_ORDER: Language[] = ["es", "en"];
+
+export function renderLanguageToggle(state: AppViewState) {
+  const currentLang = state.settings.language;
+  const index = Math.max(0, LANG_ORDER.indexOf(currentLang));
+  
+  const applyLang = (next: Language) => () => {
+    state.setLanguage(next);
+  };
+
+  return html`
+    <div class="lang-toggle" style="--lang-index: ${index};">
+      <div class="lang-toggle__track" role="group" aria-label="${t().language.label}">
+        <span class="lang-toggle__indicator"></span>
+        <button
+          class="lang-toggle__button ${currentLang === "es" ? "active" : ""}"
+          @click=${applyLang("es")}
+          aria-pressed=${currentLang === "es"}
+          aria-label="Español"
+          title="Español"
+        >
+          ES
+        </button>
+        <button
+          class="lang-toggle__button ${currentLang === "en" ? "active" : ""}"
+          @click=${applyLang("en")}
+          aria-pressed=${currentLang === "en"}
+          aria-label="English"
+          title="English"
+        >
+          EN
+        </button>
+      </div>
+    </div>
   `;
 }

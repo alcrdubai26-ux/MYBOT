@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
 import type { AppViewState } from "./app-view-state";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway";
+import { t } from "./i18n.js";
 import type { UiSettings } from "./storage";
 import type { ThemeMode } from "./theme";
 import type { ThemeTransitionContext } from "./theme-transition";
@@ -21,7 +22,7 @@ import type {
 import type { ChatQueueItem, CronFormState } from "./ui-types";
 import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import { refreshChatAvatar } from "./app-chat";
-import { renderChatControls, renderTab, renderThemeToggle } from "./app-render.helpers";
+import { renderChatControls, renderLanguageToggle, renderTab, renderThemeToggle } from "./app-render.helpers";
 import { loadChannels } from "./controllers/channels";
 import { loadChatHistory } from "./controllers/chat";
 import {
@@ -68,6 +69,7 @@ import {
 import { icons } from "./icons";
 import {
   TAB_GROUPS,
+  getGroupLabel,
   iconForTab,
   pathForTab,
   subtitleForTab,
@@ -125,8 +127,8 @@ export function renderApp(state: AppViewState) {
                 ...state.settings,
                 navCollapsed: !state.settings.navCollapsed,
               })}
-            title="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
-            aria-label="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
+            title="${state.settings.navCollapsed ? t().nav.expand : t().nav.collapse}"
+            aria-label="${state.settings.navCollapsed ? t().nav.expand : t().nav.collapse}"
           >
             <span class="nav-collapse-toggle__icon">${icons.menu}</span>
           </button>
@@ -135,23 +137,25 @@ export function renderApp(state: AppViewState) {
               <img src="https://mintcdn.com/clawhub/4rYvG-uuZrMK_URE/assets/pixel-lobster.svg?fit=max&auto=format&n=4rYvG-uuZrMK_URE&q=85&s=da2032e9eac3b5d9bfe7eb96ca6a8a26" alt="OpenClaw" />
             </div>
             <div class="brand-text">
-              <div class="brand-title">OPENCLAW</div>
-              <div class="brand-sub">Gateway Dashboard</div>
+              <div class="brand-title">${t().brand.title}</div>
+              <div class="brand-sub">${t().brand.subtitle}</div>
             </div>
           </div>
         </div>
         <div class="topbar-status">
           <div class="pill">
             <span class="statusDot ${state.connected ? "ok" : ""}"></span>
-            <span>Health</span>
-            <span class="mono">${state.connected ? "OK" : "Offline"}</span>
+            <span>${t().health.label}</span>
+            <span class="mono">${state.connected ? t().health.ok : t().health.offline}</span>
           </div>
+          ${renderLanguageToggle(state)}
           ${renderThemeToggle(state)}
         </div>
       </header>
       <aside class="nav ${state.settings.navCollapsed ? "nav--collapsed" : ""}">
         ${TAB_GROUPS.map((group) => {
-          const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
+          const groupLabel = getGroupLabel(group.labelKey);
+          const isGroupCollapsed = state.settings.navGroupsCollapsed[group.labelKey] ?? false;
           const hasActiveTab = group.tabs.some((tab) => tab === state.tab);
           return html`
             <div class="nav-group ${isGroupCollapsed && !hasActiveTab ? "nav-group--collapsed" : ""}">
@@ -159,7 +163,7 @@ export function renderApp(state: AppViewState) {
                 class="nav-label"
                 @click=${() => {
                   const next = { ...state.settings.navGroupsCollapsed };
-                  next[group.label] = !isGroupCollapsed;
+                  next[group.labelKey] = !isGroupCollapsed;
                   state.applySettings({
                     ...state.settings,
                     navGroupsCollapsed: next,
@@ -167,7 +171,7 @@ export function renderApp(state: AppViewState) {
                 }}
                 aria-expanded=${!isGroupCollapsed}
               >
-                <span class="nav-label__text">${group.label}</span>
+                <span class="nav-label__text">${groupLabel}</span>
                 <span class="nav-label__chevron">${isGroupCollapsed ? "+" : "−"}</span>
               </button>
               <div class="nav-group__items">
@@ -178,7 +182,7 @@ export function renderApp(state: AppViewState) {
         })}
         <div class="nav-group nav-group--links">
           <div class="nav-label nav-label--static">
-            <span class="nav-label__text">Resources</span>
+            <span class="nav-label__text">${t().nav.groups.resources}</span>
           </div>
           <div class="nav-group__items">
             <a
@@ -186,10 +190,10 @@ export function renderApp(state: AppViewState) {
               href="https://docs.openclaw.ai"
               target="_blank"
               rel="noreferrer"
-              title="Docs (opens in new tab)"
+              title="${t().nav.docs}"
             >
               <span class="nav-item__icon" aria-hidden="true">${icons.book}</span>
-              <span class="nav-item__text">Docs</span>
+              <span class="nav-item__text">${t().nav.docs}</span>
             </a>
           </div>
         </div>

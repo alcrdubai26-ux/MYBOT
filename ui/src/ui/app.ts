@@ -72,6 +72,7 @@ import {
 } from "./app-tool-stream";
 import { resolveInjectedAssistantIdentity } from "./assistant-identity";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity";
+import { type Language, initLanguage, setLanguage as setI18nLanguage } from "./i18n.js";
 import { loadSettings, type UiSettings } from "./storage";
 import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./ui-types";
 
@@ -82,6 +83,13 @@ declare global {
 }
 
 const injectedAssistantIdentity = resolveInjectedAssistantIdentity();
+
+function initializeLanguageFromSettings() {
+  const settings = loadSettings();
+  initLanguage(settings.language);
+}
+
+initializeLanguageFromSettings();
 
 function resolveOnboardingMode(): boolean {
   if (!window.location.search) return false;
@@ -328,6 +336,12 @@ export class OpenClawApp extends LitElement {
 
   setTheme(next: ThemeMode, context?: Parameters<typeof setThemeInternal>[2]) {
     setThemeInternal(this as unknown as Parameters<typeof setThemeInternal>[0], next, context);
+  }
+
+  setLanguage(next: Language) {
+    setI18nLanguage(next);
+    this.applySettings({ ...this.settings, language: next });
+    this.requestUpdate();
   }
 
   async loadOverview() {

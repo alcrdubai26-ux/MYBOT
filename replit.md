@@ -2,10 +2,16 @@
 
 ## Overview
 OpenClaw is a WhatsApp gateway CLI (Baileys web) with Pi RPC agent. This is a multi-component application featuring:
-- A Lit-based control UI dashboard
+- A Lit-based control UI dashboard with i18n support (Spanish/English)
 - Backend server with Express
 - PostgreSQL database with Drizzle ORM
 - Integration channels for WhatsApp, Telegram, Discord, Slack
+
+## Internationalization (i18n)
+The UI supports Spanish and English. Default language is Spanish.
+- Translation file: `ui/src/ui/i18n.ts`
+- Language toggle in the header (ES/EN buttons)
+- Settings stored in localStorage
 
 ## Project Structure
 ```

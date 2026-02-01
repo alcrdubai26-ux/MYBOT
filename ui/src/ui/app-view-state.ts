@@ -4,6 +4,7 @@ import type { ExecApprovalRequest } from "./controllers/exec-approval";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals";
 import type { SkillMessage } from "./controllers/skills";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway";
+import type { Language } from "./i18n.js";
 import type { Tab } from "./navigation";
 import type { UiSettings } from "./storage";
 import type { ThemeMode } from "./theme";
@@ -147,6 +148,7 @@ export type AppViewState = {
   connect: () => void;
   setTab: (tab: Tab) => void;
   setTheme: (theme: ThemeMode, context?: ThemeTransitionContext) => void;
+  setLanguage: (lang: Language) => void;
   applySettings: (next: UiSettings) => void;
   loadOverview: () => Promise<void>;
   loadAssistantIdentity: () => Promise<void>;
