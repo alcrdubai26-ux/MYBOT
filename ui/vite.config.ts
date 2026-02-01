@@ -31,6 +31,12 @@ export default defineConfig(({ command }) => {
       port: 5000,
       strictPort: true,
       allowedHosts: true,
+      proxy: {
+        "/api": {
+          target: "http://localhost:3000",
+          changeOrigin: true,
+        },
+      },
     },
   };
 });
