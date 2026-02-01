@@ -3,17 +3,37 @@ import type { ChannelsState } from "./channels.types";
 
 export type { ChannelsState };
 
+async function fetchApi(path: string, options?: RequestInit) {
+  const res = await fetch(`/api${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function loadChannels(state: ChannelsState, probe: boolean) {
-  if (!state.client || !state.connected) return;
   if (state.channelsLoading) return;
   state.channelsLoading = true;
   state.channelsError = null;
   try {
-    const res = (await state.client.request("channels.status", {
-      probe,
-      timeoutMs: 8000,
-    })) as ChannelsStatusSnapshot;
-    state.channelsSnapshot = res;
+    if (state.client && state.connected) {
+      const res = (await state.client.request("channels.status", {
+        probe,
+        timeoutMs: 8000,
+      })) as ChannelsStatusSnapshot;
+      state.channelsSnapshot = res;
+    } else {
+      const res = await fetchApi("/channels/status");
+      state.channelsSnapshot = res;
+    }
     state.channelsLastSuccess = Date.now();
   } catch (err) {
     state.channelsError = String(err);
@@ -23,15 +43,23 @@ export async function loadChannels(state: ChannelsState, probe: boolean) {
 }
 
 export async function startWhatsAppLogin(state: ChannelsState, force: boolean) {
-  if (!state.client || !state.connected || state.whatsappBusy) return;
+  if (state.whatsappBusy) return;
   state.whatsappBusy = true;
   try {
-    const res = (await state.client.request("web.login.start", {
-      force,
-      timeoutMs: 30000,
-    })) as { message?: string; qrDataUrl?: string };
+    let res: { message?: string; qrDataUrl?: string; qr?: string };
+    if (state.client && state.connected) {
+      res = (await state.client.request("web.login.start", {
+        force,
+        timeoutMs: 30000,
+      })) as { message?: string; qrDataUrl?: string };
+    } else {
+      res = await fetchApi("/channels/whatsapp/start", {
+        method: "POST",
+        body: JSON.stringify({ force }),
+      });
+    }
     state.whatsappLoginMessage = res.message ?? null;
-    state.whatsappLoginQrDataUrl = res.qrDataUrl ?? null;
+    state.whatsappLoginQrDataUrl = res.qrDataUrl ?? res.qr ?? null;
     state.whatsappLoginConnected = null;
   } catch (err) {
     state.whatsappLoginMessage = String(err);
@@ -43,12 +71,19 @@ export async function startWhatsAppLogin(state: ChannelsState, force: boolean) {
 }
 
 export async function waitWhatsAppLogin(state: ChannelsState) {
-  if (!state.client || !state.connected || state.whatsappBusy) return;
+  if (state.whatsappBusy) return;
   state.whatsappBusy = true;
   try {
-    const res = (await state.client.request("web.login.wait", {
-      timeoutMs: 120000,
-    })) as { connected?: boolean; message?: string };
+    let res: { connected?: boolean; message?: string };
+    if (state.client && state.connected) {
+      res = (await state.client.request("web.login.wait", {
+        timeoutMs: 120000,
+      })) as { connected?: boolean; message?: string };
+    } else {
+      res = await fetchApi("/channels/whatsapp/wait", {
+        method: "POST",
+      });
+    }
     state.whatsappLoginMessage = res.message ?? null;
     state.whatsappLoginConnected = res.connected ?? null;
     if (res.connected) state.whatsappLoginQrDataUrl = null;
@@ -61,10 +96,14 @@ export async function waitWhatsAppLogin(state: ChannelsState) {
 }
 
 export async function logoutWhatsApp(state: ChannelsState) {
-  if (!state.client || !state.connected || state.whatsappBusy) return;
+  if (state.whatsappBusy) return;
   state.whatsappBusy = true;
   try {
-    await state.client.request("channels.logout", { channel: "whatsapp" });
+    if (state.client && state.connected) {
+      await state.client.request("channels.logout", { channel: "whatsapp" });
+    } else {
+      await fetchApi("/channels/whatsapp/logout", { method: "POST" });
+    }
     state.whatsappLoginMessage = "Logged out.";
     state.whatsappLoginQrDataUrl = null;
     state.whatsappLoginConnected = null;

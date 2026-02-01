@@ -51,6 +51,105 @@ export function registerRoutes(app: Express) {
         res.json({ connections });
     });
 
+    const isDev = process.env.NODE_ENV !== "production";
+    
+    app.get("/api/channels/status", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const handler = MultiTenantWhatsAppHandler.getInstance();
+        const connections = handler.getUserConnections(userId);
+        const defaultConn = connections.find(c => c.assistantId === "default") || connections[0];
+        res.json({
+            whatsapp: {
+                configured: true,
+                linked: defaultConn?.status === "connected",
+                running: !!defaultConn,
+                connected: defaultConn?.status === "connected",
+            }
+        });
+    });
+
+    app.post("/api/channels/whatsapp/start", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const assistantId = "default";
+        const handler = MultiTenantWhatsAppHandler.getInstance();
+        
+        try {
+            const connection = await handler.connect(userId, assistantId);
+            
+            const maxWait = 10000;
+            const startTime = Date.now();
+            while (Date.now() - startTime < maxWait) {
+                const conn = handler.getConnection(userId, assistantId);
+                if (conn?.qrDataUrl) {
+                    return res.json({ 
+                        message: "Escanea el código QR con tu WhatsApp",
+                        qrDataUrl: conn.qrDataUrl 
+                    });
+                }
+                if (conn?.status === "connected") {
+                    return res.json({ 
+                        message: "WhatsApp ya está conectado",
+                        connected: true 
+                    });
+                }
+                await new Promise(r => setTimeout(r, 500));
+            }
+            
+            res.json({ 
+                message: "Generando código QR... Haz clic en 'Wait for scan' para esperar",
+                qrDataUrl: connection?.qrDataUrl || null
+            });
+        } catch (err) {
+            console.error("[WhatsApp] Start error:", err);
+            res.status(500).json({ message: "Error al iniciar WhatsApp" });
+        }
+    });
+
+    app.post("/api/channels/whatsapp/wait", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const assistantId = "default";
+        const handler = MultiTenantWhatsAppHandler.getInstance();
+        
+        try {
+            const maxWait = 60000;
+            const startTime = Date.now();
+            while (Date.now() - startTime < maxWait) {
+                const conn = handler.getConnection(userId, assistantId);
+                if (conn?.status === "connected") {
+                    return res.json({ connected: true, message: "WhatsApp conectado exitosamente" });
+                }
+                if (conn?.qrDataUrl) {
+                    return res.json({ 
+                        connected: false, 
+                        message: "Escanea el código QR",
+                        qrDataUrl: conn.qrDataUrl 
+                    });
+                }
+                await new Promise(r => setTimeout(r, 1000));
+            }
+            res.json({ connected: false, message: "Tiempo de espera agotado. Intenta de nuevo." });
+        } catch (err) {
+            res.status(500).json({ message: "Error esperando conexión" });
+        }
+    });
+
+    app.post("/api/channels/whatsapp/logout", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const assistantId = "default";
+        const handler = MultiTenantWhatsAppHandler.getInstance();
+        
+        try {
+            await handler.disconnect(userId, assistantId);
+            res.json({ message: "Sesión de WhatsApp cerrada" });
+        } catch (err) {
+            res.status(500).json({ message: "Error al cerrar sesión" });
+        }
+    });
+
     app.post("/api/channels/whatsapp/connect", async (req, res) => {
         if (!req.isAuthenticated()) return res.sendStatus(401);
         const user = req.user as any;
