@@ -70,19 +70,32 @@ export class MultiTenantWhatsAppHandler {
 
         socket.ev.on("connection.update", async (update: any) => {
             const { connection: connStatus } = update;
+            const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId);
             if (connStatus === "open") {
                 connection.status = "connected";
                 connection.qr = undefined;
                 connection.qrDataUrl = undefined;
-                await db.update(channelConnections)
-                    .set({ status: "connected", lastConnectedAt: new Date() })
-                    .where(eq(channelConnections.assistantId, assistantId));
+                if (isValidUUID) {
+                    try {
+                        await db.update(channelConnections)
+                            .set({ status: "connected", lastConnectedAt: new Date() })
+                            .where(eq(channelConnections.assistantId, assistantId));
+                    } catch (err) {
+                        console.error("[WhatsApp] DB update error:", err);
+                    }
+                }
                 console.log(`[WhatsApp] Connected for user ${userId}`);
             } else if (connStatus === "close") {
                 connection.status = "disconnected";
-                await db.update(channelConnections)
-                    .set({ status: "disconnected" })
-                    .where(eq(channelConnections.assistantId, assistantId));
+                if (isValidUUID) {
+                    try {
+                        await db.update(channelConnections)
+                            .set({ status: "disconnected" })
+                            .where(eq(channelConnections.assistantId, assistantId));
+                    } catch (err) {
+                        console.error("[WhatsApp] DB update error:", err);
+                    }
+                }
             }
         });
 
