@@ -1,0 +1,502 @@
+# CONFIGURACIÓN DEL PERSONAL AI AGENT - PLAN ORDENADO
+
+## SITUACIÓN ACTUAL
+
+Se ha importado el código base de Moltbot/OpenClaw y se ha creado un panel de control (frontend). Sin embargo, el backend de WhatsApp no está funcionando - el botón "Show QR" no hace nada.
+
+## OBJETIVO
+
+Conseguir que funcione este flujo básico:
+
+```
+Usuario envía mensaje por WhatsApp
+        ↓
+Bot recibe el mensaje
+        ↓
+Procesa con Gemini (IA)
+        ↓
+Responde por WhatsApp
+```
+
+---
+
+## FASE 1: DIAGNÓSTICO (Primero)
+
+### 1.1 Verificar qué archivos existen
+
+Busca en el proyecto si existen estos archivos:
+- `src/channels/whatsapp/` (directorio)
+- Cualquier archivo que importe `@whiskeysockets/baileys`
+- `server/whatsapp.ts` o similar
+
+### 1.2 Verificar dependencias
+
+En `package.json`, comprueba si existe:
+```json
+"@whiskeysockets/baileys": "^6.x.x"
+```
+
+Si NO existe, hay que instalarlo:
+```bash
+pnpm add @whiskeysockets/baileys
+```
+
+### 1.3 Verificar que el servidor arranca sin errores
+
+Ejecuta el servidor y mira los logs. Anota cualquier error.
+
+---
+
+## FASE 2: IMPLEMENTAR WHATSAPP BACKEND
+
+### 2.1 Crear el servicio de WhatsApp
+
+Crea el archivo `server/services/whatsapp.ts`:
+
+```typescript
+import makeWASocket, {
+  DisconnectReason,
+  useMultiFileAuthState,
+  WASocket,
+  proto
+} from '@whiskeysockets/baileys';
+import { Boom } from '@hapi/boom';
+import * as fs from 'fs';
+import * as path from 'path';
+import { EventEmitter } from 'events';
+
+export class WhatsAppService extends EventEmitter {
+  private socket: WASocket | null = null;
+  private qrCode: string | null = null;
+  private isConnected: boolean = false;
+  private authFolder: string;
+
+  constructor() {
+    super();
+    // Guardar sesión en carpeta persistente
+    this.authFolder = path.join(process.cwd(), '.whatsapp-auth');
+    if (!fs.existsSync(this.authFolder)) {
+      fs.mkdirSync(this.authFolder, { recursive: true });
+    }
+  }
+
+  async connect(): Promise<void> {
+    const { state, saveCreds } = await useMultiFileAuthState(this.authFolder);
+
+    this.socket = makeWASocket({
+      auth: state,
+      printQRInTerminal: true, // También imprime en consola
+    });
+
+    // Guardar credenciales cuando cambien
+    this.socket.ev.on('creds.update', saveCreds);
+
+    // Manejar actualizaciones de conexión
+    this.socket.ev.on('connection.update', (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      // Si hay QR, guardarlo y emitir evento
+      if (qr) {
+        this.qrCode = qr;
+        this.emit('qr', qr);
+        console.log('[WhatsApp] Nuevo código QR generado');
+      }
+
+      if (connection === 'close') {
+        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        
+        console.log('[WhatsApp] Conexión cerrada. Reconectar:', shouldReconnect);
+        this.isConnected = false;
+        this.emit('disconnected');
+
+        if (shouldReconnect) {
+          setTimeout(() => this.connect(), 3000);
+        }
+      } else if (connection === 'open') {
+        console.log('[WhatsApp] ¡Conectado correctamente!');
+        this.isConnected = true;
+        this.qrCode = null;
+        this.emit('connected');
+      }
+    });
+
+    // Manejar mensajes entrantes
+    this.socket.ev.on('messages.upsert', async (messageUpdate) => {
+      const message = messageUpdate.messages[0];
+      
+      // Ignorar mensajes propios y mensajes sin contenido
+      if (message.key.fromMe) return;
+      if (messageUpdate.type !== 'notify') return;
+
+      const text = message.message?.conversation || 
+                   message.message?.extendedTextMessage?.text || 
+                   '';
+
+      if (text) {
+        console.log('[WhatsApp] Mensaje recibido:', text);
+        this.emit('message', {
+          from: message.key.remoteJid,
+          text: text,
+          raw: message
+        });
+      }
+    });
+  }
+
+  async sendMessage(to: string, text: string): Promise<void> {
+    if (!this.socket || !this.isConnected) {
+      throw new Error('WhatsApp no está conectado');
+    }
+
+    await this.socket.sendMessage(to, { text });
+    console.log('[WhatsApp] Mensaje enviado a:', to);
+  }
+
+  getQR(): string | null {
+    return this.qrCode;
+  }
+
+  getStatus(): object {
+    return {
+      configured: true,
+      linked: this.isConnected,
+      running: this.socket !== null,
+      connected: this.isConnected,
+      hasQR: this.qrCode !== null
+    };
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.socket) {
+      await this.socket.logout();
+      this.socket = null;
+      this.isConnected = false;
+    }
+  }
+}
+
+// Singleton
+export const whatsappService = new WhatsAppService();
+```
+
+### 2.2 Crear el servicio de IA (Gemini)
+
+Crea el archivo `server/services/ai.ts`:
+
+```typescript
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+class AIService {
+  private genAI: GoogleGenerativeAI | null = null;
+  private model: any = null;
+  private conversationHistory: Map<string, Array<{role: string, parts: string}>> = new Map();
+
+  // Personalidad del asistente
+  private systemPrompt = `
+Eres un asistente personal inteligente y útil. 
+Tu nombre es Asistente (el usuario puede cambiarlo).
+Respondes de forma concisa pero completa.
+Eres proactivo y sugieres cosas útiles cuando es relevante.
+Hablas en español por defecto, pero te adaptas al idioma del usuario.
+  `.trim();
+
+  initialize(apiKey: string) {
+    this.genAI = new GoogleGenerativeAI(apiKey);
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    console.log('[AI] Gemini inicializado correctamente');
+  }
+
+  async processMessage(userId: string, message: string): Promise<string> {
+    if (!this.model) {
+      return 'Error: El servicio de IA no está configurado. Añade GEMINI_API_KEY en los Secrets.';
+    }
+
+    try {
+      // Obtener o crear historial de conversación
+      if (!this.conversationHistory.has(userId)) {
+        this.conversationHistory.set(userId, []);
+      }
+      const history = this.conversationHistory.get(userId)!;
+
+      // Construir el prompt con contexto
+      const chat = this.model.startChat({
+        history: history,
+        generationConfig: {
+          maxOutputTokens: 1000,
+        },
+      });
+
+      // Añadir system prompt si es primera interacción
+      let finalMessage = message;
+      if (history.length === 0) {
+        finalMessage = `${this.systemPrompt}\n\nUsuario: ${message}`;
+      }
+
+      // Enviar mensaje
+      const result = await chat.sendMessage(finalMessage);
+      const response = result.response.text();
+
+      // Guardar en historial (máximo 20 mensajes)
+      history.push({ role: 'user', parts: message });
+      history.push({ role: 'model', parts: response });
+      if (history.length > 40) {
+        history.splice(0, 2); // Eliminar los más antiguos
+      }
+
+      return response;
+    } catch (error) {
+      console.error('[AI] Error procesando mensaje:', error);
+      return 'Lo siento, ha ocurrido un error procesando tu mensaje. Inténtalo de nuevo.';
+    }
+  }
+
+  setSystemPrompt(prompt: string) {
+    this.systemPrompt = prompt;
+  }
+
+  clearHistory(userId: string) {
+    this.conversationHistory.delete(userId);
+  }
+}
+
+export const aiService = new AIService();
+```
+
+### 2.3 Crear las rutas API
+
+Crea o modifica `server/routes/whatsapp.ts`:
+
+```typescript
+import { Router, Request, Response } from 'express';
+import { whatsappService } from '../services/whatsapp';
+import { aiService } from '../services/ai';
+import QRCode from 'qrcode';
+
+const router = Router();
+
+// Obtener estado de WhatsApp
+router.get('/status', (req: Request, res: Response) => {
+  res.json(whatsappService.getStatus());
+});
+
+// Obtener código QR
+router.get('/qr', async (req: Request, res: Response) => {
+  const qr = whatsappService.getQR();
+  
+  if (!qr) {
+    return res.status(404).json({ 
+      error: 'No hay código QR disponible. Puede que ya estés conectado o el servicio no ha arrancado.' 
+    });
+  }
+
+  try {
+    // Convertir a imagen base64
+    const qrImage = await QRCode.toDataURL(qr);
+    res.json({ qr: qrImage });
+  } catch (error) {
+    res.status(500).json({ error: 'Error generando QR' });
+  }
+});
+
+// Iniciar conexión
+router.post('/connect', async (req: Request, res: Response) => {
+  try {
+    await whatsappService.connect();
+    res.json({ success: true, message: 'Iniciando conexión...' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error iniciando conexión' });
+  }
+});
+
+// Desconectar
+router.post('/disconnect', async (req: Request, res: Response) => {
+  try {
+    await whatsappService.disconnect();
+    res.json({ success: true, message: 'Desconectado' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error desconectando' });
+  }
+});
+
+// Enviar mensaje (para testing)
+router.post('/send', async (req: Request, res: Response) => {
+  const { to, message } = req.body;
+  
+  if (!to || !message) {
+    return res.status(400).json({ error: 'Faltan parámetros: to, message' });
+  }
+
+  try {
+    await whatsappService.sendMessage(to, message);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error enviando mensaje' });
+  }
+});
+
+export default router;
+```
+
+### 2.4 Integrar todo en el servidor principal
+
+Modifica `server/index.ts` para incluir:
+
+```typescript
+import express from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import { Server as SocketIO } from 'socket.io';
+import whatsappRoutes from './routes/whatsapp';
+import { whatsappService } from './services/whatsapp';
+import { aiService } from './services/ai';
+
+const app = express();
+const server = createServer(app);
+const io = new SocketIO(server, {
+  cors: { origin: '*' }
+});
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Rutas API
+app.use('/api/whatsapp', whatsappRoutes);
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Inicializar servicios
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+if (GEMINI_API_KEY) {
+  aiService.initialize(GEMINI_API_KEY);
+} else {
+  console.warn('[Server] GEMINI_API_KEY no configurada. El bot no podrá responder.');
+}
+
+// Iniciar WhatsApp
+whatsappService.connect().catch(console.error);
+
+// WebSocket para actualizaciones en tiempo real
+io.on('connection', (socket) => {
+  console.log('[Socket] Cliente conectado');
+  
+  // Enviar estado actual
+  socket.emit('whatsapp:status', whatsappService.getStatus());
+});
+
+// Eventos de WhatsApp → WebSocket
+whatsappService.on('qr', (qr) => {
+  io.emit('whatsapp:qr', { qr });
+});
+
+whatsappService.on('connected', () => {
+  io.emit('whatsapp:status', whatsappService.getStatus());
+});
+
+whatsappService.on('disconnected', () => {
+  io.emit('whatsapp:status', whatsappService.getStatus());
+});
+
+// Procesar mensajes entrantes con IA
+whatsappService.on('message', async ({ from, text }) => {
+  console.log(`[Bot] Procesando mensaje de ${from}: ${text}`);
+  
+  // Procesar con IA
+  const response = await aiService.processMessage(from, text);
+  
+  // Responder
+  await whatsappService.sendMessage(from, response);
+  
+  // Notificar al panel
+  io.emit('whatsapp:message', { from, text, response });
+});
+
+// Arrancar servidor
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`[Server] Corriendo en puerto ${PORT}`);
+});
+```
+
+---
+
+## FASE 3: CONFIGURAR SECRETS
+
+En Replit, ve a **Secrets** (candado en el panel izquierdo) y añade:
+
+| Key | Value |
+|-----|-------|
+| `GEMINI_API_KEY` | Tu API key de Google AI Studio |
+| `JWT_SECRET` | Una cadena aleatoria larga (para auth futura) |
+
+Para obtener GEMINI_API_KEY:
+1. Ve a https://aistudio.google.com/apikey
+2. Crea una API key
+3. Cópiala y pégala en Secrets
+
+---
+
+## FASE 4: INSTALAR DEPENDENCIAS
+
+Ejecuta en la terminal de Replit:
+
+```bash
+pnpm add @whiskeysockets/baileys @hapi/boom qrcode socket.io @google/generative-ai
+pnpm add -D @types/qrcode
+```
+
+---
+
+## FASE 5: ACTUALIZAR EL FRONTEND
+
+El panel de control necesita conectarse a la nueva API. Modifica el código que maneja "Show QR" para que:
+
+1. Haga `POST /api/whatsapp/connect` para iniciar conexión
+2. Escuche por WebSocket el evento `whatsapp:qr`
+3. Cuando llegue el QR, lo muestre como imagen
+
+---
+
+## FASE 6: PROBAR
+
+1. Reinicia el servidor (botón Stop → Run)
+2. Mira los logs - debería decir "[WhatsApp] Nuevo código QR generado"
+3. En el panel, haz clic en "Show QR"
+4. Escanea con tu WhatsApp (Ajustes → Dispositivos vinculados → Vincular dispositivo)
+5. Envía un mensaje al bot
+6. Debería responder con Gemini
+
+---
+
+## RESUMEN DE ARCHIVOS A CREAR/MODIFICAR
+
+```
+server/
+├── index.ts          (modificar - integrar todo)
+├── services/
+│   ├── whatsapp.ts   (CREAR - servicio WhatsApp)
+│   └── ai.ts         (CREAR - servicio Gemini)
+└── routes/
+    └── whatsapp.ts   (CREAR - rutas API)
+```
+
+---
+
+## SIGUIENTE FASE (DESPUÉS DE QUE FUNCIONE)
+
+Una vez WhatsApp funcione:
+1. Añadir memoria persistente (guardar conversaciones en DB)
+2. Añadir Telegram
+3. Añadir más skills (calendario, email, etc.)
+
+---
+
+## NOTAS IMPORTANTES
+
+- **Usa un número de WhatsApp secundario** para pruebas, no tu número principal
+- La sesión se guarda en `.whatsapp-auth/` - no borres esa carpeta o tendrás que escanear QR otra vez
+- Si el QR no aparece, mira los logs del servidor para ver el error
