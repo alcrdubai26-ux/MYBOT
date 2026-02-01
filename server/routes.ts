@@ -44,8 +44,10 @@ export function registerRoutes(app: Express) {
     });
 
     app.get("/api/whatsapp/status", (req, res) => {
+        if (!req.isAuthenticated()) return res.sendStatus(401);
+        const user = req.user as any;
         const handler = MultiTenantWhatsAppHandler.getInstance();
-        const connections = handler.getAllConnections();
+        const connections = handler.getUserConnections(user.id);
         res.json({ connections });
     });
 

@@ -13,6 +13,22 @@ The UI supports Spanish and English. Default language is Spanish.
 - Language toggle in the header (ES/EN buttons)
 - Settings stored in localStorage
 
+## WhatsApp + Gemini AI Integration
+The system includes a WhatsApp bot that responds with Google Gemini AI:
+- AI Service: `src/services/ai.ts` - Handles Gemini conversations
+- WhatsApp Handler: `src/channels/whatsapp/multiTenantHandler.ts`
+- Backend API: `server/` - Express server on port 3000
+- Frontend proxies `/api` calls to backend
+
+### Required Secret
+- `GEMINI_API_KEY` - Get from https://aistudio.google.com/apikey
+
+### Message Flow
+1. User sends WhatsApp message
+2. Bot receives via Baileys (multi-tenant handler)
+3. Message processed by Gemini AI
+4. Response sent back to WhatsApp
+
 ## Project Structure
 ```
 /

@@ -100,16 +100,19 @@ export class MultiTenantWhatsAppHandler {
             const from = message.key.remoteJid;
             console.log(`[WhatsApp] Message from ${from}: ${text}`);
 
+            const conversationKey = `${assistantId}:${from}`;
             if (aiService.isInitialized()) {
                 try {
-                    const response = await aiService.processMessage(from, text);
+                    const response = await aiService.processMessage(conversationKey, text);
                     await socket.sendMessage(from, { text: response });
                     console.log(`[WhatsApp] Sent AI response to ${from}`);
                 } catch (err) {
                     console.error("[WhatsApp] Error processing message with AI:", err);
+                    await socket.sendMessage(from, { text: "Lo siento, hubo un error procesando tu mensaje." });
                 }
             } else {
-                console.log("[WhatsApp] AI service not initialized, skipping response");
+                console.log("[WhatsApp] AI service not initialized");
+                await socket.sendMessage(from, { text: "El asistente de IA no está configurado. Contacta al administrador." });
             }
         });
 
@@ -128,6 +131,17 @@ export class MultiTenantWhatsAppHandler {
             userId: conn.userId,
             assistantId: conn.assistantId,
         }));
+    }
+
+    getUserConnections(userId: string) {
+        return Array.from(this.connections.entries())
+            .filter(([_, conn]) => conn.userId === userId)
+            .map(([key, conn]) => ({
+                key,
+                status: conn.status,
+                hasQr: !!conn.qrDataUrl,
+                assistantId: conn.assistantId,
+            }));
     }
 
     async disconnect(userId: string, assistantId: string) {
