@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;
-import * as schema from "./schema";
+import * as schema from "./schema.js";
 
 if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL must be set. Please provide a PostgreSQL connection string.");
