@@ -37,7 +37,7 @@ async function getGmailAccessToken() {
     throw new Error('Token de Replit no encontrado');
   }
 
-  connectionSettings = await fetch(
+  const response = await fetch(
     'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=google-mail',
     {
       headers: {
@@ -45,10 +45,17 @@ async function getGmailAccessToken() {
         'X_REPLIT_TOKEN': xReplitToken
       }
     }
-  ).then(res => res.json()).then(data => data.items?.[0]);
+  );
+  
+  const data = await response.json();
+  console.log('[Email] Connector response:', JSON.stringify(data, null, 2));
+  
+  connectionSettings = data.items?.[0];
 
   const accessToken = connectionSettings?.settings?.access_token || 
                       connectionSettings?.settings?.oauth?.credentials?.access_token;
+
+  console.log('[Email] Access token found:', !!accessToken);
 
   if (!connectionSettings || !accessToken) {
     throw new Error('Gmail no conectado');
