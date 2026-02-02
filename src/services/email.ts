@@ -18,49 +18,50 @@ interface SendEmailOptions {
   attachments?: Array<{ filename: string; content: Buffer; mimeType: string }>;
 }
 
-let connectionSettings: any;
+let cachedAccessToken: string | null = null;
+let tokenExpiresAt: number = 0;
 
-async function getGmailAccessToken() {
-  if (connectionSettings?.settings?.expires_at && 
-      new Date(connectionSettings.settings.expires_at).getTime() > Date.now()) {
-    return connectionSettings.settings.access_token;
-  }
-  
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY 
-    ? 'repl ' + process.env.REPL_IDENTITY 
-    : process.env.WEB_REPL_RENEWAL 
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
-    : null;
-
-  if (!xReplitToken) {
-    throw new Error('Token de Replit no encontrado');
+async function getGmailAccessToken(): Promise<string> {
+  // Return cached token if still valid
+  if (cachedAccessToken && Date.now() < tokenExpiresAt - 60000) {
+    return cachedAccessToken;
   }
 
-  const response = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=google-mail',
-    {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
-      }
-    }
-  );
-  
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error('Credenciales de Gmail no configuradas (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN)');
+  }
+
+  console.log('[Email] Refreshing access token using OAuth credentials...');
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+
   const data = await response.json();
-  console.log('[Email] Connector response:', JSON.stringify(data, null, 2));
   
-  connectionSettings = data.items?.[0];
-
-  const accessToken = connectionSettings?.settings?.access_token || 
-                      connectionSettings?.settings?.oauth?.credentials?.access_token;
-
-  console.log('[Email] Access token found:', !!accessToken);
-
-  if (!connectionSettings || !accessToken) {
-    throw new Error('Gmail no conectado');
+  if (data.error) {
+    console.error('[Email] Token refresh error:', data);
+    throw new Error(`Error obteniendo token: ${data.error_description || data.error}`);
   }
-  return accessToken;
+
+  cachedAccessToken = data.access_token;
+  tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+  
+  console.log('[Email] Access token refreshed successfully');
+  return cachedAccessToken;
 }
 
 async function getGmailClient() {
