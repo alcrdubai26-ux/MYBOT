@@ -5,6 +5,9 @@ import { assistants, channelConnections } from "./db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { MultiTenantWhatsAppHandler } from "../src/channels/whatsapp/multiTenantHandler.js";
 import { MultiTenantTelegramHandler } from "../src/channels/telegram/multiTenantHandler.js";
+import { emailService } from "../src/services/email.js";
+import { browserService } from "../src/services/browser.js";
+import { gammaService } from "../src/services/gamma.js";
 
 export function registerRoutes(app: Express) {
     setupAuth(app);
@@ -254,5 +257,87 @@ export function registerRoutes(app: Express) {
         const handler = MultiTenantTelegramHandler.getInstance();
         const connection = await handler.connect(user.id, assistantId, token);
         res.json({ status: connection?.status });
+    });
+
+    // Email routes
+    app.get("/api/email/accounts", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        await emailService.initialize();
+        res.json({ accounts: emailService.getAccounts() });
+    });
+
+    app.post("/api/email/send", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const { to, subject, body, html, from, cc, bcc } = req.body;
+        
+        if (!to || !subject || !body) {
+            return res.status(400).json({ error: "to, subject y body son requeridos" });
+        }
+
+        await emailService.initialize();
+        const result = await emailService.sendEmail({ to, subject, body, html, from, cc, bcc });
+        res.json(result);
+    });
+
+    app.get("/api/email/recent", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const count = parseInt(req.query.count as string) || 10;
+        await emailService.initialize();
+        const emails = await emailService.getRecentEmails(count);
+        res.json({ emails });
+    });
+
+    app.get("/api/email/search", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const query = req.query.q as string;
+        const count = parseInt(req.query.count as string) || 10;
+        
+        if (!query) {
+            return res.status(400).json({ error: "query param 'q' es requerido" });
+        }
+
+        await emailService.initialize();
+        const emails = await emailService.searchEmails(query, count);
+        res.json({ emails });
+    });
+
+    // Browser routes
+    app.post("/api/browser/navigate", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const { url, sessionId } = req.body;
+        
+        if (!url) {
+            return res.status(400).json({ error: "url es requerido" });
+        }
+
+        const result = await browserService.navigate(url, sessionId);
+        res.json(result);
+    });
+
+    app.post("/api/browser/screenshot", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const { sessionId } = req.body;
+        const result = await browserService.screenshot(sessionId);
+        res.json(result);
+    });
+
+    app.get("/api/browser/allowed-domains", (req, res) => {
+        res.json({ 
+            allowed: browserService.getAllowedDomains(),
+            blocked: browserService.getBlockedDomains()
+        });
+    });
+
+    // Gamma presentation routes
+    app.post("/api/gamma/create", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const { topic, slideCount } = req.body;
+        
+        if (!topic) {
+            return res.status(400).json({ error: "topic es requerido" });
+        }
+
+        const result = await gammaService.createPresentation(topic, slideCount || 8);
+        res.json(result);
     });
 }
