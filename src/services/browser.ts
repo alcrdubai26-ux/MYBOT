@@ -56,7 +56,7 @@ function isDomainAllowed(url: string): { allowed: boolean; reason?: string } {
       }
     }
     
-    return { allowed: true };
+    return { allowed: false, reason: `Dominio no autorizado: ${domain}. Solo se permiten dominios de la lista blanca.` };
   } catch {
     return { allowed: false, reason: 'URL inválida' };
   }
@@ -109,10 +109,24 @@ class BrowserService {
     }
   }
 
+  private async validateCurrentDomain(page: Page): Promise<{ allowed: boolean; error?: string }> {
+    const currentUrl = page.url();
+    const check = isDomainAllowed(currentUrl);
+    if (!check.allowed) {
+      return { allowed: false, error: `La página actual está en un dominio no autorizado: ${check.reason}` };
+    }
+    return { allowed: true };
+  }
+
   async screenshot(sessionId: string = 'default'): Promise<{ success: boolean; imagePath?: string; error?: string }> {
     const page = this.pages.get(sessionId);
     if (!page) {
       return { success: false, error: 'No hay página activa' };
+    }
+
+    const domainCheck = await this.validateCurrentDomain(page);
+    if (!domainCheck.allowed) {
+      return { success: false, error: domainCheck.error };
     }
 
     try {
@@ -140,6 +154,11 @@ class BrowserService {
       return { success: false, error: 'No hay página activa' };
     }
 
+    const domainCheck = await this.validateCurrentDomain(page);
+    if (!domainCheck.allowed) {
+      return { success: false, error: domainCheck.error };
+    }
+
     try {
       await page.fill(selector, value);
       return { success: true };
@@ -154,6 +173,11 @@ class BrowserService {
       return { success: false, error: 'No hay página activa' };
     }
 
+    const domainCheck = await this.validateCurrentDomain(page);
+    if (!domainCheck.allowed) {
+      return { success: false, error: domainCheck.error };
+    }
+
     try {
       await page.click(selector);
       return { success: true };
@@ -166,6 +190,11 @@ class BrowserService {
     const page = this.pages.get(sessionId);
     if (!page) {
       return { success: false, error: 'No hay página activa' };
+    }
+
+    const domainCheck = await this.validateCurrentDomain(page);
+    if (!domainCheck.allowed) {
+      return { success: false, error: domainCheck.error };
     }
 
     try {

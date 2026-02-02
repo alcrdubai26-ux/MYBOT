@@ -65,20 +65,27 @@ async function getGmailClient() {
 
 class EmailService {
   private accounts: EmailAccount[] = [];
+  private initialized: boolean = false;
 
   async initialize() {
+    if (this.initialized) return;
+    
     try {
       const gmail = await getGmailClient();
       const profile = await gmail.users.getProfile({ userId: 'me' });
       
       if (profile.data.emailAddress) {
-        this.accounts.push({
-          provider: 'gmail',
-          email: profile.data.emailAddress,
-          isDefault: true
-        });
-        console.log(`[Email] Gmail conectado: ${profile.data.emailAddress}`);
+        const existingAccount = this.accounts.find(a => a.email === profile.data.emailAddress);
+        if (!existingAccount) {
+          this.accounts.push({
+            provider: 'gmail',
+            email: profile.data.emailAddress,
+            isDefault: this.accounts.length === 0
+          });
+          console.log(`[Email] Gmail conectado: ${profile.data.emailAddress}`);
+        }
       }
+      this.initialized = true;
     } catch (err) {
       console.log('[Email] Gmail no disponible:', (err as Error).message);
     }
