@@ -108,8 +108,8 @@ class AIService {
     this.apiKey = apiKey;
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.genAINew = new GoogleGenAI({ apiKey });
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    console.log("[AI] Gemini 1.5 Flash inicializado con personalidad AMUN");
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    console.log("[AI] Gemini 2.0 Flash inicializado con personalidad AMUN");
     console.log("[AI] Nano Banana (imagen) y Veo 3.1 (video) habilitados");
     this.ensureAmunAssistant();
   }
@@ -421,7 +421,7 @@ class AIService {
       console.log(`[AI] Generando imagen con Nano Banana: ${prompt.substring(0, 50)}...`);
       
       const response = await this.genAINew.models.generateContent({
-        model: "gemini-1.5-flash",
+        model: "imagen-3.0-generate-002",
         contents: prompt,
         config: {
           responseModalities: [Modality.TEXT, Modality.IMAGE],
