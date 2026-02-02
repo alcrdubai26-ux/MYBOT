@@ -38,6 +38,11 @@ function detectVideoRequest(text: string): string | null {
 }
 
 function detectEmailRequest(text: string): { type: 'read' | 'search' | null; query?: string } {
+    // Si piden Excel, informe, tabla, análisis → NO interceptar, dejar que el AI lo maneje con function calling
+    if (/excel|informe|tabla|reporte|análisis|analisis|suscripciones/i.test(text)) {
+        return { type: null };
+    }
+    
     const readPatterns = [
         /(?:muéstrame|muestrame|dame|lee|ver|leer)\s+(?:mis\s+)?(?:últimos\s+)?(?:correos?|emails?|mails?)/i,
         /(?:mis\s+)?(?:últimos\s+)?(?:correos?|emails?|mails?)(?:\s+recientes)?/i,
