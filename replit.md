@@ -38,15 +38,38 @@ AMUN es el asistente de IA configurado con personalidad específica para Angel/O
 - **Presentaciones**: Gamma.app integration
   - AMUN genera estructura, usuario copia a Gamma
   - API: `/api/gamma/create`
+- **Redes Sociales**: Instagram, TikTok, Facebook (ObraSmart Pro)
+  - Servicio: `src/services/social.ts`
+  - APIs sin confirmación: `/api/social/hashtags`, `/api/social/best-times`, `/api/social/content-ideas`, `/api/social/metrics/:platform`
+  - APIs con confirmación: `/api/social/draft`, `/api/social/request-publish`, `/api/social/confirm-publish`
+  - Flujo: AMUN prepara borrador → muestra preview → usuario confirma → publica
+  - Secrets pendientes: `META_ACCESS_TOKEN` (Instagram/Facebook), `TIKTOK_ACCESS_TOKEN`
+
+### Permisos de redes sociales
+**Sin confirmación (AMUN puede hacerlo solo):**
+- Ver métricas y estadísticas
+- Ver mensajes y comentarios
+- Analizar rendimiento de posts
+- Buscar tendencias y hashtags
+- Preparar borradores
+
+**Con confirmación obligatoria:**
+- Publicar cualquier contenido
+- Responder comentarios
+- Enviar mensajes directos
+- Programar publicaciones
 
 ### Notas de integración
 - Outlook: Usuario rechazó configuración (pendiente si necesario)
+- Instagram/Facebook: Requiere META_ACCESS_TOKEN de Meta Business Suite
+- TikTok: Requiere TIKTOK_ACCESS_TOKEN de TikTok for Developers
 
 ### Archivos clave
 - Servicio IA: `src/services/ai.ts` - Personalidad AMUN + memoria
 - Servicio Email: `src/services/email.ts` - Gmail API
 - Servicio Browser: `src/services/browser.ts` - Playwright
 - Servicio Gamma: `src/services/gamma.ts` - Presentaciones
+- Servicio Social: `src/services/social.ts` - Redes sociales
 - Bot Telegram: `src/telegram/simple-bot.ts`
 - WhatsApp Handler: `src/channels/whatsapp/multiTenantHandler.ts`
 - Backend API: `server/` - Express en puerto 3000
@@ -79,7 +102,7 @@ curl -X POST http://localhost:3000/api/channels/telegram/start \
 │   └── routes.ts       # API routes
 ├── src/                # Core application source
 │   ├── channels/       # WhatsApp, Telegram handlers
-│   ├── services/       # AI, Email, Browser, Gamma services
+│   ├── services/       # AI, Email, Browser, Gamma, Social services
 │   └── infra/          # Infrastructure utilities
 ├── extensions/         # Various integration extensions
 ├── packages/           # Workspace sub-packages

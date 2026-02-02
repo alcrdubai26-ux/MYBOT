@@ -8,6 +8,7 @@ import { MultiTenantTelegramHandler } from "../src/channels/telegram/multiTenant
 import { emailService } from "../src/services/email.js";
 import { browserService } from "../src/services/browser.js";
 import { gammaService } from "../src/services/gamma.js";
+import { socialService } from "../src/services/social.js";
 
 export function registerRoutes(app: Express) {
     setupAuth(app);
@@ -339,5 +340,108 @@ export function registerRoutes(app: Express) {
 
         const result = await gammaService.createPresentation(topic, slideCount || 8);
         res.json(result);
+    });
+
+    // Social media routes
+    app.get("/api/social/status", (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        res.json({
+            configured: socialService.isConfigured(),
+            accounts: socialService.getConnectedAccounts(),
+        });
+    });
+
+    app.get("/api/social/drafts", (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        res.json({ drafts: socialService.getDrafts() });
+    });
+
+    app.post("/api/social/draft", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const { platform, content, hashtags } = req.body;
+        
+        if (!platform || !content) {
+            return res.status(400).json({ error: "platform y content son requeridos" });
+        }
+
+        const draft = socialService.createDraft(userId, platform, content, hashtags);
+        res.json({ draft });
+    });
+
+    app.get("/api/social/my-drafts", (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        res.json({ drafts: socialService.getUserDrafts(userId) });
+    });
+
+    app.post("/api/social/generate-content", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const { topic, platform } = req.body;
+        
+        if (!topic || !platform) {
+            return res.status(400).json({ error: "topic y platform son requeridos" });
+        }
+
+        const content = await socialService.generatePostContent(topic, platform);
+        const hashtags = await socialService.suggestHashtags(topic, platform);
+        res.json({ content, hashtags });
+    });
+
+    app.get("/api/social/hashtags", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const topic = req.query.topic as string || 'construcción';
+        const platform = req.query.platform as string || 'instagram';
+        const hashtags = await socialService.suggestHashtags(topic, platform);
+        res.json({ hashtags });
+    });
+
+    app.get("/api/social/best-times", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const platform = req.query.platform as string || 'instagram';
+        const times = await socialService.getBestPostingTimes(platform);
+        res.json({ times });
+    });
+
+    app.get("/api/social/content-ideas", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const ideas = await socialService.getContentIdeas();
+        res.json({ ideas });
+    });
+
+    app.post("/api/social/request-publish", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const { draftId } = req.body;
+        
+        if (!draftId) {
+            return res.status(400).json({ error: "draftId es requerido" });
+        }
+
+        try {
+            const result = await socialService.requestPublishApproval(userId, draftId);
+            res.json(result);
+        } catch (err) {
+            res.status(400).json({ error: (err as Error).message });
+        }
+    });
+
+    app.post("/api/social/confirm-publish", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const { draftId, approvalToken } = req.body;
+        
+        if (!draftId || !approvalToken) {
+            return res.status(400).json({ error: "draftId y approvalToken son requeridos" });
+        }
+
+        const result = await socialService.confirmAndPublish(userId, draftId, approvalToken);
+        res.json(result);
+    });
+
+    app.get("/api/social/metrics/:platform", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const metrics = await socialService.getMetrics(req.params.platform);
+        res.json({ metrics });
     });
 }
