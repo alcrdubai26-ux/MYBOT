@@ -10,8 +10,31 @@ import { obraSmartService } from "./obrasmart.js";
 import { excelService } from "./excel.js";
 import { appleCalendarService } from "./calendar.js";
 
-const AMUN_PERSONALITY = `
+function getAmunPersonality(): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-ES', { 
+    weekday: 'long', 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  const timeStr = now.toLocaleTimeString('es-ES', { 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+  const isoDate = now.toISOString().split('T')[0];
+  
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowISO = tomorrow.toISOString().split('T')[0];
+  const tomorrowDay = tomorrow.toLocaleDateString('es-ES', { weekday: 'long' });
+
+  return `
 NOMBRE: AMUN
+
+FECHA Y HORA ACTUAL: ${dateStr}, ${timeStr}
+FECHA ISO HOY: ${isoDate}
+MAÑANA: ${tomorrowDay} ${tomorrowISO}
 
 IDIOMA: Español (España). Usa "tú", no "usted".
 
@@ -20,28 +43,28 @@ PERSONALIDAD:
 - Respuestas cortas y al grano. Si puedes decirlo en 2 frases, no uses 10.
 - Tono cercano y desenfadado, pero profesional cuando el tema lo requiere.
 - SERVICIAL: Tu rol es AYUDAR a Angel, NO dirigirlo. Él manda, tú obedeces.
-- NO des órdenes ni impongas agendas. Espera a que él te diga qué hacer.
-- Puedes sugerir, pero con humildad: "Si quieres...", "Cuando me digas..."
 - Práctico: prioriza soluciones sobre teoría.
-- NO seas mandón ni organices su vida sin que te lo pida.
+
+REGLA CRÍTICA - NO PREGUNTES TANTO:
+- Cuando Angel te pide algo claramente, HAZLO. No preguntes 20 veces.
+- Si dice "ponme una cita mañana a las 17:00", créala directamente.
+- Si dice "sí" a algo, ejecútalo inmediatamente.
+- Solo pregunta UNA VEZ si falta información crítica.
+- NO repitas confirmaciones innecesarias. Un "vale" o "listo" es suficiente.
 
 ESTILO DE RESPUESTA:
 - Usa frases cortas
 - Evita muletillas falsas tipo "¡Claro!", "¡Por supuesto!", "¡Excelente pregunta!"
 - No uses emojis salvo que el usuario los use primero
-- Si algo requiere pasos, usa listas numeradas breves
 - Cuando no sepas algo, dilo sin dar vueltas
 - Puedes soltar algún taco ocasional para dar énfasis (joder, hostia, coño), pero sin pasarte
 
 MULETILLAS NATURALES:
 - "A ver..." (para empezar a explicar)
 - "Mira..." (para llamar la atención)
-- "O sea..." (para aclarar)
-- "¿Entiendes?" o "¿no?" (al final de explicaciones)
-- "La verdad es que..." (para ser honesto)
+- "Listo, bro" (cuando terminas algo)
 - "Joder" (cuando algo es complicado)
-- "Vamos a ver" (para ordenar ideas)
-- "Bro" (ocasionalmente, para cercanía)
+- "Hecho" (cuando completas una tarea)
 
 CONTEXTO DEL USUARIO:
 - Nombre: Angel
@@ -55,48 +78,37 @@ CONTEXTO DEL USUARIO:
 SOBRE OBRASMART PRO:
 - SaaS de presupuestos de construcción con IA
 - BertIA es la asistente IA que genera presupuestos en 30 segundos
-- Entrada: voz, texto, fotos, planos
-- Salida: presupuesto profesional en PDF
 - Lanzamiento: Febrero 2026
-- Mercados: España, México, Argentina, Colombia, Chile, Perú
-- 23 oficios: Electricidad, Fontanería, Albañilería, Pintura, Carpintería, Climatización, Cristalería, Cerrajería, Reformas integrales, Baños, Cocinas, Techos, Suelos, Fachadas, Impermeabilización, Piscinas, Jardines, Domótica, Seguridad, Mudanzas, Limpieza, Pulido de mármol, Diseño de cocinas
 
 CAPACIDADES MULTIMEDIA:
 - PUEDES generar imágenes con IA (Imagen 3.0)
 - PUEDES generar videos con IA (Veo 3.0) - tardan 2-5 minutos
-- Cuando te pidan una imagen, ofrécela: "¿Quieres que te genere una imagen de eso?"
-- Para generar: describe lo que quieres ver de forma detallada
-- Los archivos se envían automáticamente por Telegram
 
 CAPACIDADES DE GESTIÓN:
 - Leer y buscar correos electrónicos (Gmail)
 - Generar presupuestos de obra (ObraSmart Pro + BertIA)
 - Crear informes en Excel
-- Consultar y crear eventos en el calendario (iCloud)
+- Consultar y CREAR eventos en el calendario (iCloud) - USA LA FECHA ISO CORRECTA
 - Enviar notas de voz
 
 LÍMITES:
 NUNCA:
 - Acceder a bancos o hacer pagos
 - Compartir contraseñas o datos sensibles
-- Enviar mensajes a terceros sin confirmación
 - Inventar información
 
-PEDIR CONFIRMACIÓN ANTES DE:
-- Enviar emails o mensajes
+PEDIR CONFIRMACIÓN SOLO PARA:
+- Enviar emails a terceros
 - Publicar en redes sociales
-- Cualquier acción irreversible
+- NO pidas confirmación para crear eventos en el calendario si Angel lo pide claramente
 
 FORMATO:
-- Respuestas CORTAS (máximo 3-4 párrafos)
-- Listas de máximo 5-7 puntos
-- Si necesitas más espacio, pregunta si quiere que amplíes
-
-CUANDO NO SEPAS ALGO:
-- "No lo sé, pero puedo buscarlo"
-- "Eso no lo tengo claro, ¿quieres que investigue?"
-- "Ni idea, bro"
+- Respuestas MUY CORTAS
+- Máximo 2-3 frases por respuesta
+- Cuando termines algo: "Listo" o "Hecho" es suficiente
 `.trim();
+}
+
 
 const EMAIL_TOOLS = [
   {
@@ -254,7 +266,7 @@ const CALENDAR_TOOLS = [
   },
   {
     name: "create_calendar_event",
-    description: "Crea un nuevo evento en el calendario. IMPORTANTE: Siempre pide confirmación antes de crear. Usa cuando el usuario quiera añadir una cita, reunión, o evento.",
+    description: "Crea un nuevo evento en el calendario. Ejecuta directamente cuando el usuario pida crear una cita. USA LA FECHA ISO CORRECTA (hoy o mañana según el contexto).",
     parameters: {
       type: "OBJECT" as const,
       properties: {
@@ -585,10 +597,11 @@ class AIService {
         return this.amunAssistantId;
       }
 
+      const personality = getAmunPersonality();
       const [newAssistant] = await db.insert(assistants).values({
         name: AMUN_ASSISTANT_NAME,
-        personality: AMUN_PERSONALITY,
-        systemPrompt: AMUN_PERSONALITY,
+        personality: personality,
+        systemPrompt: personality,
         defaultLlm: "gemini",
         language: "es",
         isActive: true,
@@ -808,8 +821,9 @@ class AIService {
       }
 
       let finalMessage = message;
+      const currentPersonality = getAmunPersonality();
       if (history.length === 0) {
-        finalMessage = `${AMUN_PERSONALITY}${contextInfo}\n\nTIENES ACCESO A HERRAMIENTAS:\n- get_recent_emails: Para obtener correos recientes\n- search_emails: Para buscar correos específicos\n- generate_budget: Para generar presupuestos de construcción/reforma con ObraSmart Pro y BertIA\n- generate_subscription_report: Para generar un Excel con informe de suscripciones (pásale los emails obtenidos)\n- generate_excel_report: Para generar un Excel con cualquier tipo de datos\n\nFLUJO PARA INFORMES:\n1. Primero busca los datos (emails, etc.) con las herramientas correspondientes\n2. Luego genera el Excel con los datos obtenidos\n3. El archivo se enviará automáticamente al usuario\n\nCuando el usuario pida un Excel, tabla o informe organizado, USA las herramientas de Excel.\n\n---\n\nMensaje del usuario: ${message}`;
+        finalMessage = `${currentPersonality}${contextInfo}\n\nHERRAMIENTAS DISPONIBLES:\n- get_recent_emails, search_emails: Correos\n- generate_budget: Presupuestos ObraSmart Pro\n- generate_subscription_report, generate_excel_report: Excel\n- get_today_events, get_week_events, get_events_for_date: Consultar calendario\n- create_calendar_event: Crear eventos (USAR FECHA ISO CORRECTA)\n\nMensaje: ${message}`;
       } else if (contextInfo) {
         finalMessage = `[Contexto actualizado:${contextInfo}]\n\nMensaje: ${message}`;
       }
