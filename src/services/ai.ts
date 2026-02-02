@@ -300,7 +300,46 @@ const CALENDAR_TOOLS = [
   },
 ];
 
-const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS, ...EXCEL_TOOLS, ...CALENDAR_TOOLS];
+const MEDIA_TOOLS = [
+  {
+    name: "generate_image",
+    description: "Genera una imagen con IA usando Imagen 3.0. Usa cuando el usuario pida crear, generar o hacer una imagen, foto, ilustración, diseño, etc.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        prompt: {
+          type: "STRING" as const,
+          description: "Descripción detallada de la imagen a generar en inglés. Incluye estilo, colores, composición, etc.",
+        },
+        aspectRatio: {
+          type: "STRING" as const,
+          description: "Ratio de aspecto: 1:1 (cuadrada), 16:9 (panorámica), 9:16 (vertical), 4:3, 3:4",
+        },
+      },
+      required: ["prompt"],
+    },
+  },
+  {
+    name: "generate_video",
+    description: "Genera un video con IA usando Veo 3.0. AVISO: Tarda 2-5 minutos. Usa cuando el usuario pida crear un video, clip, animación, etc.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        prompt: {
+          type: "STRING" as const,
+          description: "Descripción detallada del video a generar en inglés. Incluye acción, escena, estilo, movimiento de cámara, etc.",
+        },
+        durationSeconds: {
+          type: "NUMBER" as const,
+          description: "Duración en segundos: 5, 6, 7 u 8 (por defecto 8)",
+        },
+      },
+      required: ["prompt"],
+    },
+  },
+];
+
+const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS, ...EXCEL_TOOLS, ...CALENDAR_TOOLS, ...MEDIA_TOOLS];
 
 async function executeEmailTool(name: string, args: any): Promise<string> {
   try {
@@ -520,7 +559,39 @@ async function executeCalendarTool(name: string, args: any): Promise<string> {
   }
 }
 
-async function executeTool(name: string, args: any): Promise<string> {
+async function executeMediaTool(name: string, args: any, aiService: AIService): Promise<string> {
+  try {
+    if (name === "generate_image") {
+      const result = await aiService.generateImage(args.prompt, args.aspectRatio || "1:1");
+      if (result.success && result.imagePath) {
+        return JSON.stringify({
+          success: true,
+          message: "Imagen generada correctamente",
+          file: result.imagePath,
+        });
+      }
+      return `Error generando imagen: ${result.error || 'desconocido'}`;
+    }
+
+    if (name === "generate_video") {
+      const result = await aiService.generateVideo(args.prompt, args.durationSeconds || 8);
+      if (result.success && result.videoPath) {
+        return JSON.stringify({
+          success: true,
+          message: "Video generado correctamente",
+          file: result.videoPath,
+        });
+      }
+      return `Error generando video: ${result.error || 'desconocido'}`;
+    }
+
+    return "Herramienta multimedia no reconocida";
+  } catch (err) {
+    return `Error multimedia: ${(err as Error).message}`;
+  }
+}
+
+async function executeTool(name: string, args: any, aiService?: AIService): Promise<string> {
   if (name === "get_recent_emails" || name === "search_emails") {
     return executeEmailTool(name, args);
   }
@@ -532,6 +603,9 @@ async function executeTool(name: string, args: any): Promise<string> {
   }
   if (name === "get_today_events" || name === "get_week_events" || name === "get_events_for_date" || name === "check_availability" || name === "create_calendar_event") {
     return executeCalendarTool(name, args);
+  }
+  if ((name === "generate_image" || name === "generate_video") && aiService) {
+    return executeMediaTool(name, args, aiService);
   }
   return "Herramienta no reconocida";
 }
@@ -841,7 +915,7 @@ class AIService {
       while (functionCall && iterations < maxIterations) {
         console.log(`[AI] Function call: ${functionCall.name}`, functionCall.args);
         
-        const toolResult = await executeTool(functionCall.name, functionCall.args);
+        const toolResult = await executeTool(functionCall.name, functionCall.args, this);
         console.log(`[AI] Tool result length: ${toolResult.length} chars`);
         
         // Check if tool generated a file
