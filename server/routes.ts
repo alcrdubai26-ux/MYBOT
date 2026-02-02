@@ -176,7 +176,53 @@ export function registerRoutes(app: Express) {
         });
     });
 
-    // Telegram Connect
+    // Telegram Connect (simplified for dev)
+    app.post("/api/channels/telegram/start", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const { token } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ 
+                message: "Se requiere el token del bot de Telegram. Obtenlo de @BotFather" 
+            });
+        }
+
+        try {
+            const handler = MultiTenantTelegramHandler.getInstance();
+            const connection = await handler.connect(userId, "default", token);
+            res.json({ 
+                status: connection?.status,
+                message: connection?.status === "connected" 
+                    ? "Bot de Telegram conectado. Ahora puedes enviarle mensajes." 
+                    : "Error al conectar"
+            });
+        } catch (err) {
+            console.error("[Telegram] Connect error:", err);
+            res.status(500).json({ message: "Error al conectar el bot de Telegram" });
+        }
+    });
+
+    app.get("/api/channels/telegram/status", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const handler = MultiTenantTelegramHandler.getInstance();
+        const bots = handler.getUserBots(userId);
+        res.json({ 
+            connected: bots.some(b => b.status === "connected"),
+            bots 
+        });
+    });
+
+    app.post("/api/channels/telegram/disconnect", async (req, res) => {
+        if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
+        const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
+        const handler = MultiTenantTelegramHandler.getInstance();
+        await handler.disconnect(userId, "default");
+        res.json({ message: "Bot de Telegram desconectado" });
+    });
+
+    // Telegram Connect (original with auth)
     app.post("/api/channels/telegram/connect", async (req, res) => {
         if (!req.isAuthenticated()) return res.sendStatus(401);
         const user = req.user as any;
@@ -184,21 +230,25 @@ export function registerRoutes(app: Express) {
 
         if (!token) return res.status(400).json({ message: "Telegram token is required" });
 
-        const [existing] = await db.select().from(channelConnections)
-            .where(and(eq(channelConnections.assistantId, assistantId), eq(channelConnections.channelType, "telegram")))
-            .limit(1);
+        const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId);
+        
+        if (isValidUUID) {
+            const [existing] = await db.select().from(channelConnections)
+                .where(and(eq(channelConnections.assistantId, assistantId), eq(channelConnections.channelType, "telegram")))
+                .limit(1);
 
-        if (existing) {
-            await db.update(channelConnections)
-                .set({ botToken: token })
-                .where(eq(channelConnections.id, existing.id));
-        } else {
-            await db.insert(channelConnections).values({
-                userId: user.id,
-                assistantId,
-                channelType: "telegram",
-                botToken: token,
-            });
+            if (existing) {
+                await db.update(channelConnections)
+                    .set({ botToken: token })
+                    .where(eq(channelConnections.id, existing.id));
+            } else {
+                await db.insert(channelConnections).values({
+                    userId: user.id,
+                    assistantId,
+                    channelType: "telegram",
+                    botToken: token,
+                });
+            }
         }
 
         const handler = MultiTenantTelegramHandler.getInstance();

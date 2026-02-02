@@ -1,11 +1,9 @@
-import { createTelegramBot } from "../../telegram/bot.js";
-import { db } from "../../../server/db/index.js";
-import { channelConnections } from "../../../server/db/schema.js";
-import { eq } from "drizzle-orm";
+import { createSimpleTelegramBot } from "../../telegram/simple-bot.js";
 
 interface ActiveTelegramBot {
     bot: any;
-    status: "connected" | "disconnected";
+    status: "connected" | "disconnected" | "error";
+    error?: string;
 }
 
 export class MultiTenantTelegramHandler {
@@ -23,19 +21,24 @@ export class MultiTenantTelegramHandler {
 
     async connect(userId: string, assistantId: string, token: string) {
         const connectionKey = `${userId}:${assistantId}`;
-        if (this.bots.has(connectionKey)) {
-            return this.bots.get(connectionKey);
+        const existing = this.bots.get(connectionKey);
+        if (existing && existing.status === "connected") {
+            return existing;
         }
 
         try {
-            const bot = createTelegramBot({
+            const bot = createSimpleTelegramBot({
                 token,
-                accountId: assistantId,
+                assistantId,
             });
 
             bot.start().catch((err) => {
-                console.error(`[Telegram] Bot for assistant ${assistantId} failed:`, err);
-                this.bots.delete(connectionKey);
+                console.error(`[Telegram] Bot for ${connectionKey} failed:`, err);
+                const activeBot = this.bots.get(connectionKey);
+                if (activeBot) {
+                    activeBot.status = "error";
+                    activeBot.error = String(err);
+                }
             });
 
             const activeBot: ActiveTelegramBot = {
@@ -44,21 +47,26 @@ export class MultiTenantTelegramHandler {
             };
 
             this.bots.set(connectionKey, activeBot);
-
-            await db.update(channelConnections)
-                .set({ status: "connected", lastConnectedAt: new Date() })
-                .where(eq(channelConnections.assistantId, assistantId));
-
-            console.log(`[Telegram] Bot connected for assistant ${assistantId}`);
+            console.log(`[Telegram] Bot connected for ${connectionKey}`);
             return activeBot;
         } catch (err) {
-            console.error(`[Telegram] Failed to create bot for assistant ${assistantId}:`, err);
+            console.error(`[Telegram] Failed to create bot for ${connectionKey}:`, err);
             throw err;
         }
     }
 
     getBot(userId: string, assistantId: string) {
         return this.bots.get(`${userId}:${assistantId}`);
+    }
+
+    getUserBots(userId: string) {
+        return Array.from(this.bots.entries())
+            .filter(([key]) => key.startsWith(`${userId}:`))
+            .map(([key, bot]) => ({
+                key,
+                status: bot.status,
+                error: bot.error,
+            }));
     }
 
     async disconnect(userId: string, assistantId: string) {
@@ -68,7 +76,7 @@ export class MultiTenantTelegramHandler {
             try {
                 await activeBot.bot.stop();
             } catch (err) {
-                console.error(`[Telegram] Error stopping bot ${assistantId}:`, err);
+                console.error(`[Telegram] Error stopping bot ${connectionKey}:`, err);
             }
             this.bots.delete(connectionKey);
         }
