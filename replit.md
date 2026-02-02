@@ -13,21 +13,38 @@ The UI supports Spanish and English. Default language is Spanish.
 - Language toggle in the header (ES/EN buttons)
 - Settings stored in localStorage
 
-## WhatsApp + Gemini AI Integration
-The system includes a WhatsApp bot that responds with Google Gemini AI:
-- AI Service: `src/services/ai.ts` - Handles Gemini conversations
+## AMUN - Asistente Personal con IA
+AMUN es el asistente de IA configurado con personalidad específica para Angel/ObraSmart Pro.
+
+### Características
+- **Personalidad**: Español de España, directo, sin rodeos, expresiones naturales
+- **Memoria persistente**: Guarda conversaciones y datos en PostgreSQL
+- **Canales**: Telegram (funcionando), WhatsApp (en desarrollo)
+- **IA**: Gemini 2.0 Flash
+
+### Archivos clave
+- Servicio IA: `src/services/ai.ts` - Personalidad AMUN + memoria
+- Bot Telegram: `src/telegram/simple-bot.ts`
 - WhatsApp Handler: `src/channels/whatsapp/multiTenantHandler.ts`
-- Backend API: `server/` - Express server on port 3000
-- Frontend proxies `/api` calls to backend
+- Backend API: `server/` - Express en puerto 3000
+
+### Tablas de memoria
+- `assistants` - Configuración del asistente AMUN
+- `memory` - Hechos y preferencias del usuario
+- `conversations` - Historial de conversaciones
+- `messages` - Mensajes individuales
+- `user_tasks` - Tareas pendientes
+- `user_projects` - Proyectos activos
 
 ### Required Secret
 - `GEMINI_API_KEY` - Get from https://aistudio.google.com/apikey
 
-### Message Flow
-1. User sends WhatsApp message
-2. Bot receives via Baileys (multi-tenant handler)
-3. Message processed by Gemini AI
-4. Response sent back to WhatsApp
+### Conectar Telegram
+```bash
+curl -X POST http://localhost:3000/api/channels/telegram/start \
+  -H "Content-Type: application/json" \
+  -d '{"token": "TU_TOKEN_DE_BOTFATHER"}'
+```
 
 ## Project Structure
 ```
