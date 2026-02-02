@@ -1,6 +1,7 @@
 import { Bot, InputFile } from "grammy";
 import { aiService } from "../services/ai.js";
 import { emailService } from "../services/email.js";
+import { voiceService } from "../services/voice.js";
 import * as fs from "fs";
 
 export interface SimpleTelegramBotOptions {
@@ -92,6 +93,68 @@ export function createSimpleTelegramBot(opts: SimpleTelegramBotOptions) {
             fs.unlinkSync(result.videoPath);
         } else {
             await ctx.reply(`Error generando video: ${result.error}`);
+        }
+    });
+    
+    bot.command("voz", async (ctx) => {
+        const text = ctx.match;
+        if (!text) {
+            await ctx.reply("Uso: /voz [texto que quieres que diga AMUN]");
+            return;
+        }
+        
+        await ctx.replyWithChatAction("record_voice");
+        
+        const result = await voiceService.textToSpeech(text);
+        if (result.success && result.audioPath) {
+            await ctx.replyWithVoice(new InputFile(result.audioPath));
+            fs.unlinkSync(result.audioPath);
+        } else {
+            await ctx.reply(`Error generando audio: ${result.error}`);
+        }
+    });
+    
+    bot.on("message:voice", async (ctx) => {
+        const chatId = ctx.chat.id;
+        const conversationKey = `${opts.assistantId}:telegram:${chatId}`;
+        
+        console.log(`[Telegram] Voice message from ${chatId}`);
+        
+        try {
+            await ctx.replyWithChatAction("typing");
+            
+            const file = await ctx.getFile();
+            const fileUrl = `https://api.telegram.org/file/bot${opts.token}/${file.file_path}`;
+            
+            const response = await fetch(fileUrl);
+            const audioBuffer = Buffer.from(await response.arrayBuffer());
+            
+            const transcription = await voiceService.transcribeAudio(audioBuffer, 'voice.ogg');
+            
+            if (!transcription.success || !transcription.text) {
+                await ctx.reply("No pude entender el audio. ¿Puedes repetir?");
+                return;
+            }
+            
+            console.log(`[Telegram] Transcribed: "${transcription.text}"`);
+            
+            if (aiService.isInitialized()) {
+                await ctx.replyWithChatAction("record_voice");
+                const aiResponse = await aiService.processMessage(conversationKey, transcription.text);
+                
+                const voiceResult = await voiceService.textToSpeech(aiResponse);
+                if (voiceResult.success && voiceResult.audioPath) {
+                    await ctx.replyWithVoice(new InputFile(voiceResult.audioPath));
+                    fs.unlinkSync(voiceResult.audioPath);
+                } else {
+                    await ctx.reply(aiResponse);
+                }
+            } else {
+                await ctx.reply(`Dijiste: "${transcription.text}"\n\nPero AMUN no está configurado.`);
+            }
+        } catch (err) {
+            console.error("[Telegram] Error processing voice:", err);
+            await ctx.reply("Error procesando el audio.");
         }
     });
     

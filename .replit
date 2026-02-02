@@ -1,7 +1,7 @@
 modules = ["swift-5.8", "bash", "web", "nodejs-22", "postgresql-16", "python-3.11"]
 [agent]
 expertMode = true
-integrations = ["google-mail:1.0.0"]
+integrations = ["google-mail:1.0.0", "elevenlabs:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
