@@ -1,5 +1,6 @@
 import { Bot, InputFile } from "grammy";
 import { aiService } from "../services/ai.js";
+import { emailService } from "../services/email.js";
 import * as fs from "fs";
 
 export interface SimpleTelegramBotOptions {
@@ -33,6 +34,24 @@ function detectVideoRequest(text: string): string | null {
         if (match) return match[1].trim();
     }
     return null;
+}
+
+function detectEmailRequest(text: string): { type: 'read' | 'search' | null; query?: string } {
+    const readPatterns = [
+        /(?:muéstrame|muestrame|dame|lee|ver|leer)\s+(?:mis\s+)?(?:últimos\s+)?(?:correos?|emails?|mails?)/i,
+        /(?:mis\s+)?(?:últimos\s+)?(?:correos?|emails?|mails?)(?:\s+recientes)?/i,
+        /bandeja\s+de\s+entrada/i,
+        /\/emails?/i,
+    ];
+    
+    for (const pattern of readPatterns) {
+        if (pattern.test(text)) return { type: 'read' };
+    }
+    
+    const searchMatch = text.match(/(?:busca|encuentra|buscar)\s+(?:correos?|emails?|mails?)\s+(?:de|sobre|con)\s+(.+)/i);
+    if (searchMatch) return { type: 'search', query: searchMatch[1].trim() };
+    
+    return { type: null };
 }
 
 export function createSimpleTelegramBot(opts: SimpleTelegramBotOptions) {
@@ -109,6 +128,55 @@ export function createSimpleTelegramBot(opts: SimpleTelegramBotOptions) {
                 fs.unlinkSync(result.videoPath);
             } else {
                 await ctx.reply(`Error generando video: ${result.error}`);
+            }
+            return;
+        }
+        
+        const emailRequest = detectEmailRequest(text);
+        if (emailRequest.type === 'read') {
+            await ctx.replyWithChatAction("typing");
+            try {
+                await emailService.initialize();
+                const emails = await emailService.getRecentEmails(5);
+                if (emails.length === 0) {
+                    await ctx.reply("No he podido obtener tus correos. ¿Tienes Gmail conectado?");
+                } else {
+                    let response = "Aquí tienes tus últimos correos:\n\n";
+                    emails.forEach((email, i) => {
+                        const fromName = email.from?.split('<')[0]?.trim() || email.from || 'Desconocido';
+                        response += `${i + 1}. *${email.subject || 'Sin asunto'}*\n`;
+                        response += `   De: ${fromName}\n`;
+                        response += `   ${email.snippet?.substring(0, 80)}...\n\n`;
+                    });
+                    await ctx.reply(response, { parse_mode: "Markdown" });
+                }
+            } catch (err) {
+                console.error("[Telegram] Error fetching emails:", err);
+                await ctx.reply("No pude acceder al correo. Puede que Gmail no esté conectado.");
+            }
+            return;
+        }
+        
+        if (emailRequest.type === 'search' && emailRequest.query) {
+            await ctx.replyWithChatAction("typing");
+            try {
+                await emailService.initialize();
+                const emails = await emailService.searchEmails(emailRequest.query, 5);
+                if (emails.length === 0) {
+                    await ctx.reply(`No encontré correos sobre "${emailRequest.query}".`);
+                } else {
+                    let response = `Correos encontrados sobre "${emailRequest.query}":\n\n`;
+                    emails.forEach((email, i) => {
+                        const fromName = email.from?.split('<')[0]?.trim() || email.from || 'Desconocido';
+                        response += `${i + 1}. *${email.subject || 'Sin asunto'}*\n`;
+                        response += `   De: ${fromName}\n`;
+                        response += `   ${email.snippet?.substring(0, 80)}...\n\n`;
+                    });
+                    await ctx.reply(response, { parse_mode: "Markdown" });
+                }
+            } catch (err) {
+                console.error("[Telegram] Error searching emails:", err);
+                await ctx.reply("Error buscando correos.");
             }
             return;
         }
