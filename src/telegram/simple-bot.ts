@@ -119,12 +119,24 @@ export function createSimpleTelegramBot(opts: SimpleTelegramBotOptions) {
                 const response = await aiService.processMessage(conversationKey, text);
                 await ctx.reply(response);
                 console.log(`[Telegram] Sent AI response to ${chatId}`);
-            } catch (err) {
-                console.error("[Telegram] Error processing message with AI:", err);
-                await ctx.reply("Joder, algo ha fallado. Inténtalo de nuevo.");
+            } catch (err: any) {
+                const errorMsg = err?.message || String(err);
+                console.error("[Telegram] Error processing message with AI:", errorMsg);
+                console.error("[Telegram] Full error:", err);
+                
+                if (errorMsg.includes("API key")) {
+                    await ctx.reply("Error: La API key de Gemini no es válida. Revisa la configuración.");
+                } else if (errorMsg.includes("quota") || errorMsg.includes("rate")) {
+                    await ctx.reply("Me he pasado del límite de la API. Espera un momento e inténtalo de nuevo.");
+                } else if (errorMsg.includes("blocked") || errorMsg.includes("safety")) {
+                    await ctx.reply("El mensaje fue bloqueado por el filtro de seguridad. Reformúlalo.");
+                } else {
+                    await ctx.reply("Joder, algo ha fallado. Inténtalo de nuevo.");
+                }
             }
         } else {
-            console.log("[Telegram] AI service not initialized");
+            console.log("[Telegram] AI service not initialized - checking GEMINI_API_KEY...");
+            console.log("[Telegram] GEMINI_API_KEY exists:", !!process.env.GEMINI_API_KEY);
             await ctx.reply("El asistente de IA no está configurado. Contacta al administrador.");
         }
     });
