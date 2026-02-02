@@ -5,6 +5,7 @@ import { memory, conversations, messages, userTasks, userProjects, assistants } 
 import { eq, desc, and, sql } from "drizzle-orm";
 import * as fs from "fs";
 import * as path from "path";
+import { emailService } from "./email.js";
 
 const AMUN_PERSONALITY = `
 NOMBRE: AMUN
@@ -80,6 +81,79 @@ CUANDO NO SEPAS ALGO:
 - "Ni idea, bro"
 `.trim();
 
+const EMAIL_TOOLS = [
+  {
+    name: "get_recent_emails",
+    description: "Obtiene los correos electrónicos más recientes del usuario. Usa esta herramienta cuando el usuario pida ver sus correos, revisar su bandeja de entrada, o analizar sus emails.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        count: {
+          type: "NUMBER" as const,
+          description: "Número de correos a obtener (máximo 50)",
+        },
+      },
+      required: ["count"],
+    },
+  },
+  {
+    name: "search_emails",
+    description: "Busca correos electrónicos con una query específica. Usa esta herramienta para buscar correos de un remitente, sobre un tema, o con palabras clave específicas.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        query: {
+          type: "STRING" as const,
+          description: "Query de búsqueda (ej: 'from:amazon', 'subject:factura', 'subscription')",
+        },
+        count: {
+          type: "NUMBER" as const,
+          description: "Número máximo de resultados",
+        },
+      },
+      required: ["query"],
+    },
+  },
+];
+
+async function executeEmailTool(name: string, args: any): Promise<string> {
+  try {
+    await emailService.initialize();
+    
+    if (name === "get_recent_emails") {
+      const count = Math.min(args.count || 10, 50);
+      const emails = await emailService.getRecentEmails(count);
+      if (emails.length === 0) {
+        return "No se encontraron correos.";
+      }
+      return JSON.stringify(emails.map(e => ({
+        from: e.from,
+        subject: e.subject,
+        date: e.date,
+        snippet: e.snippet
+      })), null, 2);
+    }
+    
+    if (name === "search_emails") {
+      const count = Math.min(args.count || 20, 50);
+      const emails = await emailService.searchEmails(args.query, count);
+      if (emails.length === 0) {
+        return `No se encontraron correos con la búsqueda: ${args.query}`;
+      }
+      return JSON.stringify(emails.map(e => ({
+        from: e.from,
+        subject: e.subject,
+        date: e.date,
+        snippet: e.snippet
+      })), null, 2);
+    }
+    
+    return "Herramienta no reconocida";
+  } catch (err) {
+    return `Error ejecutando herramienta: ${(err as Error).message}`;
+  }
+}
+
 interface MemoryItem {
   id: string;
   category: string | null;
@@ -109,8 +183,13 @@ class AIService {
     this.apiKey = apiKey;
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.genAINew = new GoogleGenAI({ apiKey });
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
-    console.log("[AI] Gemini 3.0 Flash inicializado con personalidad AMUN");
+    this.model = this.genAI.getGenerativeModel({ 
+      model: "gemini-2.0-flash",
+      tools: [{
+        functionDeclarations: EMAIL_TOOLS
+      }]
+    });
+    console.log("[AI] Gemini 2.0 Flash inicializado con personalidad AMUN y herramientas de email");
     console.log("[AI] Imagen 3.0 (imágenes) y Veo 3.0 (videos) habilitados");
     this.ensureAmunAssistant();
   }
@@ -359,24 +438,50 @@ class AIService {
 
       let finalMessage = message;
       if (history.length === 0) {
-        finalMessage = `${AMUN_PERSONALITY}${contextInfo}\n\n---\n\nMensaje del usuario: ${message}`;
+        finalMessage = `${AMUN_PERSONALITY}${contextInfo}\n\nTIENES ACCESO A HERRAMIENTAS:\n- get_recent_emails: Para obtener correos recientes\n- search_emails: Para buscar correos específicos\n\nCuando el usuario te pida algo relacionado con emails, USA las herramientas para obtener la información y luego analiza/procesa los resultados.\n\n---\n\nMensaje del usuario: ${message}`;
       } else if (contextInfo) {
         finalMessage = `[Contexto actualizado:${contextInfo}]\n\nMensaje: ${message}`;
       }
 
-      const result = await chat.sendMessage(finalMessage);
-      const response = result.response.text();
+      let result = await chat.sendMessage(finalMessage);
+      let response = result.response;
+      
+      // Handle function calls
+      let functionCall = response.functionCalls()?.[0];
+      let iterations = 0;
+      const maxIterations = 5;
+      
+      while (functionCall && iterations < maxIterations) {
+        console.log(`[AI] Function call: ${functionCall.name}`, functionCall.args);
+        
+        const toolResult = await executeEmailTool(functionCall.name, functionCall.args);
+        console.log(`[AI] Tool result length: ${toolResult.length} chars`);
+        
+        // Send tool result back to model
+        result = await chat.sendMessage([{
+          functionResponse: {
+            name: functionCall.name,
+            response: { result: toolResult }
+          }
+        }]);
+        
+        response = result.response;
+        functionCall = response.functionCalls()?.[0];
+        iterations++;
+      }
+      
+      const responseText = response.text();
 
       history.push({ role: "user", parts: [{ text: message }] });
-      history.push({ role: "model", parts: [{ text: response }] });
+      history.push({ role: "model", parts: [{ text: responseText }] });
 
       if (history.length > 40) {
         history.splice(0, 2);
       }
 
-      this.saveConversation(assistantId, channelType, chatId, message, response).catch(() => {});
+      this.saveConversation(assistantId, channelType, chatId, message, responseText).catch(() => {});
 
-      return response;
+      return responseText;
     } catch (error) {
       console.error("[AI] Error procesando mensaje:", error);
       return "Joder, algo ha fallado. Inténtalo de nuevo.";

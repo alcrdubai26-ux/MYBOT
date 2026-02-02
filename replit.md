@@ -17,10 +17,12 @@ The UI supports Spanish and English. Default language is Spanish.
 AMUN es el asistente de IA configurado con personalidad específica para Angel/ObraSmart Pro.
 
 ### Características
-- **Personalidad**: Español de España, directo, sin rodeos, expresiones naturales
+- **Personalidad**: Español de España, directo, sin rodeos, expresiones naturales, servicial (no mandón)
 - **Memoria persistente**: Guarda conversaciones y datos en PostgreSQL
 - **Canales**: Telegram (funcionando), WhatsApp (en desarrollo)
-- **IA**: Gemini 3.0 Flash (chat), Imagen 3.0 (imágenes), Veo 3.0 (videos)
+- **IA**: Gemini 2.0 Flash (chat con function calling), Imagen 3.0 (imágenes), Veo 3.0 (videos)
+- **Voz**: ElevenLabs para text-to-speech (voice ID: RXPQcKYH6wnQn5NLiWCD)
+- **Function Calling**: AMUN puede ejecutar herramientas automáticamente (email, etc.)
 
 ### Capacidades multimedia
 - **Imágenes**: Comando `/imagen` o "genera una imagen de..."

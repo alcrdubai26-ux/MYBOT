@@ -1,0 +1,210 @@
+═══════════════════════════════════════
+INTEGRACIÓN OBRASMART PRO - API REAL
+═══════════════════════════════════════
+
+CREDENCIALES (ya en Secrets):
+- OBRASMART_URL = https://obrasmartpro.com
+- OBRASMART_USER = (en secrets)
+- OBRASMART_PASS = (en secrets)
+
+═══════════════════════════════════════
+ENDPOINTS DISPONIBLES
+═══════════════════════════════════════
+
+1. LOGIN
+   POST /api/auth/login
+   Body: { "email": "...", "password": "..." }
+   Respuesta: { "token": "eyJ..." } // JWT válido 24h
+
+2. GENERAR PRESUPUESTO
+   POST /api/ai-budgets/generate
+   Header: Authorization: Bearer <token>
+   Body: {
+     "descripcion": "Reforma de baño 6m²...",
+     "margen": 30,
+     "tipoCliente": "particular",
+     "calidad": "media"
+   }
+   Respuesta: { "budget": { "id": "abc123", "total_con_iva": 5445.00 } }
+
+3. TRANSCRIBIR AUDIO
+   POST /api/transcribe
+   Header: Authorization: Bearer <token>
+   Body: multipart/form-data con archivo audio
+   Respuesta: { "text": "texto transcrito" }
+
+4. DESCARGAR PDF
+   GET /api/ai-budgets/{budgetId}/pdf
+   Header: Authorization: Bearer <token>
+   Respuesta: archivo PDF binario
+
+═══════════════════════════════════════
+CÓDIGO DE INTEGRACIÓN
+═══════════════════════════════════════
+
+Crear: server/services/obrasmart.ts
+
+class ObraSmartService {
+  private baseUrl: string;
+  private email: string;
+  private password: string;
+  private token: string | null = null;
+  private tokenExpiry: Date | null = null;
+
+  constructor() {
+    this.baseUrl = process.env.OBRASMART_URL || 'https://obrasmartpro.com';
+    this.email = process.env.OBRASMART_USER || '';
+    this.password = process.env.OBRASMART_PASS || '';
+  }
+
+  // Login y obtener token
+  async login(): Promise<string> {
+    // Si token válido, reutilizar
+    if (this.token && this.tokenExpiry && this.tokenExpiry > new Date()) {
+      return this.token;
+    }
+
+    const response = await fetch(`${this.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        email: this.email, 
+        password: this.password 
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Error de login en ObraSmart');
+    }
+
+    const data = await response.json();
+    this.token = data.token;
+    // Token válido 24h, renovar a las 23h por seguridad
+    this.tokenExpiry = new Date(Date.now() + 23 * 60 * 60 * 1000);
+    
+    return this.token;
+  }
+
+  // Generar presupuesto desde texto
+  async generateBudget(descripcion: string, opciones?: {
+    margen?: number;
+    tipoCliente?: 'particular' | 'empresa' | 'promotora';
+    calidad?: 'economica' | 'media' | 'alta' | 'premium';
+  }): Promise<{
+    id: string;
+    referencia: string;
+    total: number;
+    texto: string;
+  }> {
+    const token = await this.login();
+
+    const response = await fetch(`${this.baseUrl}/api/ai-budgets/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        descripcion,
+        margen: opciones?.margen || 30,
+        tipoCliente: opciones?.tipoCliente || 'particular',
+        calidad: opciones?.calidad || 'media'
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Error generando presupuesto');
+    }
+
+    const data = await response.json();
+    return {
+      id: data.budget.id,
+      referencia: data.budget.referencia,
+      total: data.budget.total_con_iva,
+      texto: data.budget.presupuesto_texto
+    };
+  }
+
+  // Transcribir audio
+  async transcribeAudio(audioBuffer: Buffer, filename: string): Promise<string> {
+    const token = await this.login();
+    
+    const formData = new FormData();
+    formData.append('audio', new Blob([audioBuffer]), filename);
+
+    const response = await fetch(`${this.baseUrl}/api/transcribe`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error('Error transcribiendo audio');
+    }
+
+    const data = await response.json();
+    return data.text;
+  }
+
+  // Descargar PDF
+  async downloadPdf(budgetId: string): Promise<Buffer> {
+    const token = await this.login();
+
+    const response = await fetch(`${this.baseUrl}/api/ai-budgets/${budgetId}/pdf`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Error descargando PDF');
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  }
+}
+
+export const obraSmartService = new ObraSmartService();
+
+═══════════════════════════════════════
+INTEGRAR EN EL BOT
+═══════════════════════════════════════
+
+Cuando Angel diga "Hazme presupuesto con ObraSmart":
+
+1. Si es TEXTO:
+   const budget = await obraSmartService.generateBudget(descripcion);
+   const pdf = await obraSmartService.downloadPdf(budget.id);
+   // Enviar pdf al chat
+
+2. Si es AUDIO:
+   const texto = await obraSmartService.transcribeAudio(audioBuffer, 'audio.mp3');
+   const budget = await obraSmartService.generateBudget(texto);
+   const pdf = await obraSmartService.downloadPdf(budget.id);
+   // Enviar pdf al chat
+
+═══════════════════════════════════════
+FLUJO DE CONVERSACIÓN
+═══════════════════════════════════════
+
+Angel: "Hazme presupuesto con ObraSmart: reforma baño 6m², 
+        quitar bañera, poner plato ducha"
+
+AMUN: "Generando presupuesto con BertIA, espera unos segundos..."
+
+[BertIA procesa - puede tardar 30-60 seg]
+
+AMUN: [Envía PDF]
+      "Listo. Reforma de baño 6m²: 5.445€ (IVA incluido)
+       Ref: PRES-2026-0001
+       ¿Quieres que modifique algo?"
+
+═══════════════════════════════════════
+MANEJO DE ERRORES
+═══════════════════════════════════════
+
+- Si falla login: "No puedo conectar con ObraSmart ahora. Intenta en unos minutos."
+- Si tarda mucho: "BertIA está tardando más de lo normal, espera un poco más..."
+- Si falla generación: "Ha habido un error generando el presupuesto. ¿Lo intento de nuevo?"
