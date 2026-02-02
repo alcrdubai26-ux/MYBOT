@@ -108,9 +108,9 @@ class AIService {
     this.apiKey = apiKey;
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.genAINew = new GoogleGenAI({ apiKey });
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    console.log("[AI] Gemini 2.0 Flash inicializado con personalidad AMUN");
-    console.log("[AI] Nano Banana (imagen) y Veo 3.1 (video) habilitados");
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+    console.log("[AI] Gemini 3.0 Flash inicializado con personalidad AMUN");
+    console.log("[AI] Imagen 3.0 (imágenes) y Veo 2.0 (videos) habilitados");
     this.ensureAmunAssistant();
   }
 
