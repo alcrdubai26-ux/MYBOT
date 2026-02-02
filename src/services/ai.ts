@@ -6,6 +6,7 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import * as fs from "fs";
 import * as path from "path";
 import { emailService } from "./email.js";
+import { obraSmartService } from "./obrasmart.js";
 
 const AMUN_PERSONALITY = `
 NOMBRE: AMUN
@@ -116,6 +117,37 @@ const EMAIL_TOOLS = [
   },
 ];
 
+const OBRASMART_TOOLS = [
+  {
+    name: "generate_budget",
+    description: "Genera un presupuesto de construcción/reforma usando ObraSmart Pro y BertIA. Usa esta herramienta cuando el usuario pida generar un presupuesto, calcular costes de obra, o hacer un presupuesto para cliente.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        descripcion: {
+          type: "STRING" as const,
+          description: "Descripción detallada del trabajo: tipo de obra, metros cuadrados, materiales, acabados, etc.",
+        },
+        margen: {
+          type: "NUMBER" as const,
+          description: "Margen de beneficio en porcentaje (por defecto 30%)",
+        },
+        tipoCliente: {
+          type: "STRING" as const,
+          description: "Tipo de cliente: particular, empresa, o promotora",
+        },
+        calidad: {
+          type: "STRING" as const,
+          description: "Nivel de calidad: economica, media, alta, o premium",
+        },
+      },
+      required: ["descripcion"],
+    },
+  },
+];
+
+const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS];
+
 async function executeEmailTool(name: string, args: any): Promise<string> {
   try {
     await emailService.initialize();
@@ -154,6 +186,44 @@ async function executeEmailTool(name: string, args: any): Promise<string> {
   }
 }
 
+async function executeObraSmartTool(name: string, args: any): Promise<string> {
+  try {
+    if (!obraSmartService.isConfigured()) {
+      return "ObraSmart no está configurado. Faltan las credenciales OBRASMART_USER y OBRASMART_PASS.";
+    }
+
+    if (name === "generate_budget") {
+      const budget = await obraSmartService.generateBudget(args.descripcion, {
+        margen: args.margen,
+        tipoCliente: args.tipoCliente,
+        calidad: args.calidad,
+      });
+      
+      return JSON.stringify({
+        success: true,
+        id: budget.id,
+        referencia: budget.referencia,
+        total: budget.total,
+        resumen: budget.texto?.substring(0, 500) || "Presupuesto generado"
+      }, null, 2);
+    }
+    
+    return "Herramienta no reconocida";
+  } catch (err) {
+    return `Error ejecutando herramienta ObraSmart: ${(err as Error).message}`;
+  }
+}
+
+async function executeTool(name: string, args: any): Promise<string> {
+  if (name === "get_recent_emails" || name === "search_emails") {
+    return executeEmailTool(name, args);
+  }
+  if (name === "generate_budget") {
+    return executeObraSmartTool(name, args);
+  }
+  return "Herramienta no reconocida";
+}
+
 interface MemoryItem {
   id: string;
   category: string | null;
@@ -186,10 +256,10 @@ class AIService {
     this.model = this.genAI.getGenerativeModel({ 
       model: "gemini-2.0-flash",
       tools: [{
-        functionDeclarations: EMAIL_TOOLS
+        functionDeclarations: ALL_TOOLS
       }]
     });
-    console.log("[AI] Gemini 2.0 Flash inicializado con personalidad AMUN y herramientas de email");
+    console.log("[AI] Gemini 2.0 Flash inicializado con personalidad AMUN y herramientas (email, ObraSmart)");
     console.log("[AI] Imagen 3.0 (imágenes) y Veo 3.0 (videos) habilitados");
     this.ensureAmunAssistant();
   }
@@ -438,7 +508,7 @@ class AIService {
 
       let finalMessage = message;
       if (history.length === 0) {
-        finalMessage = `${AMUN_PERSONALITY}${contextInfo}\n\nTIENES ACCESO A HERRAMIENTAS:\n- get_recent_emails: Para obtener correos recientes\n- search_emails: Para buscar correos específicos\n\nCuando el usuario te pida algo relacionado con emails, USA las herramientas para obtener la información y luego analiza/procesa los resultados.\n\n---\n\nMensaje del usuario: ${message}`;
+        finalMessage = `${AMUN_PERSONALITY}${contextInfo}\n\nTIENES ACCESO A HERRAMIENTAS:\n- get_recent_emails: Para obtener correos recientes\n- search_emails: Para buscar correos específicos\n- generate_budget: Para generar presupuestos de construcción/reforma con ObraSmart Pro y BertIA\n\nCuando el usuario te pida algo relacionado con emails, USA las herramientas para obtener la información.\nCuando el usuario te pida un presupuesto de obra/reforma, USA generate_budget con la descripción detallada.\n\n---\n\nMensaje del usuario: ${message}`;
       } else if (contextInfo) {
         finalMessage = `[Contexto actualizado:${contextInfo}]\n\nMensaje: ${message}`;
       }
@@ -454,7 +524,7 @@ class AIService {
       while (functionCall && iterations < maxIterations) {
         console.log(`[AI] Function call: ${functionCall.name}`, functionCall.args);
         
-        const toolResult = await executeEmailTool(functionCall.name, functionCall.args);
+        const toolResult = await executeTool(functionCall.name, functionCall.args);
         console.log(`[AI] Tool result length: ${toolResult.length} chars`);
         
         // Send tool result back to model

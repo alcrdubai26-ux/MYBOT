@@ -30,7 +30,12 @@ AMUN es el asistente de IA configurado con personalidad específica para Angel/O
 - Archivos generados en `generated/` (se borran tras enviar)
 
 ### Servicios integrados
-- **Email**: Gmail conectado via OAuth (Replit connector)
+- **ObraSmart Pro**: Generación de presupuestos con BertIA
+  - Servicio: `src/services/obrasmart.ts`
+  - AMUN genera presupuestos automáticamente via function calling
+  - Flujo: Usuario describe obra → AMUN llama a BertIA → Devuelve presupuesto con total
+  - Secrets: `OBRASMART_URL`, `OBRASMART_USER`, `OBRASMART_PASS`
+- **Email**: Gmail conectado via OAuth (manual credentials)
   - Enviar, leer, buscar correos
   - API: `/api/email/send`, `/api/email/recent`, `/api/email/search`
 - **Navegador**: Playwright para automatización web
