@@ -78,17 +78,27 @@ class ObraSmartService {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('[ObraSmart] Error generando presupuesto:', errorText);
-      throw new Error('Error generando presupuesto');
+      throw new Error(`Error generando presupuesto: ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('[ObraSmart] Presupuesto generado:', data.budget?.referencia);
+    console.log('[ObraSmart] Respuesta completa:', JSON.stringify(data, null, 2).substring(0, 500));
+    
+    // Handle different response structures
+    const budget = data.budget || data.presupuesto || data;
+    
+    if (!budget || (!budget.id && !budget.referencia)) {
+      console.error('[ObraSmart] Estructura de respuesta inesperada:', data);
+      throw new Error('Respuesta de ObraSmart no tiene el formato esperado');
+    }
+    
+    console.log('[ObraSmart] Presupuesto generado:', budget.referencia || budget.id);
     
     return {
-      id: data.budget.id,
-      referencia: data.budget.referencia,
-      total: data.budget.total_con_iva,
-      texto: data.budget.presupuesto_texto
+      id: budget.id || 'sin-id',
+      referencia: budget.referencia || budget.ref || 'sin-referencia',
+      total: budget.total_con_iva || budget.total || 0,
+      texto: budget.presupuesto_texto || budget.texto || budget.description || JSON.stringify(budget)
     };
   }
 
