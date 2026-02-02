@@ -1,0 +1,117 @@
+CONFIGURAR MEMORIA PERSISTENTE PARA AMUN
+
+═══════════════════════════════════════
+OBJETIVO
+═══════════════════════════════════════
+
+AMUN debe recordar TODO lo que hable con Angel:
+- Conversaciones anteriores
+- Datos que le cuente
+- Preferencias que mencione
+- Decisiones tomadas
+- Tareas pendientes
+- Proyectos y su estado
+
+NO quiero tener que repetirle las cosas.
+
+═══════════════════════════════════════
+ESTRUCTURA DE BASE DE DATOS
+═══════════════════════════════════════
+
+Crear estas tablas si no existen:
+
+1. MEMORIA GENERAL (hechos sobre el usuario)
+   - id
+   - categoria (personal, trabajo, preferencias, proyectos)
+   - contenido (texto del hecho)
+   - fuente (conversación, inferido)
+   - importancia (1-10)
+   - fecha_creacion
+   - fecha_ultimo_acceso
+
+2. CONVERSACIONES (historial completo)
+   - id
+   - canal (telegram, whatsapp)
+   - fecha
+   - mensajes (JSON con todo el hilo)
+   - resumen (generado automáticamente)
+
+3. TAREAS Y PENDIENTES
+   - id
+   - descripcion
+   - estado (pendiente, en_progreso, completada)
+   - fecha_creacion
+   - fecha_limite (opcional)
+   - prioridad
+
+4. PROYECTOS
+   - id
+   - nombre
+   - descripcion
+   - estado
+   - notas (JSON con actualizaciones)
+
+═══════════════════════════════════════
+COMPORTAMIENTO DE MEMORIA
+═══════════════════════════════════════
+
+GUARDAR AUTOMÁTICAMENTE cuando Angel mencione:
+- Datos personales ("mi empresa se llama...", "vivo en...")
+- Decisiones ("he decidido que...", "vamos a hacer...")
+- Preferencias ("no me gusta...", "prefiero...")
+- Proyectos ("estoy trabajando en...", "el proyecto X...")
+- Tareas ("tengo que...", "mañana voy a...")
+- Personas relevantes ("mi socio Juan...", "el cliente Pedro...")
+
+RECUPERAR AUTOMÁTICAMENTE:
+- Antes de cada respuesta, consultar memoria relevante
+- Usar contexto de conversaciones anteriores
+- Recordar en qué quedaron las cosas
+
+ACTUALIZAR cuando algo cambie:
+- "Ya terminé lo de X" → marcar tarea completada
+- "Al final no vamos a hacer Y" → actualizar decisión
+- "Hemos cambiado el nombre a Z" → actualizar dato
+
+═══════════════════════════════════════
+EJEMPLOS DE USO DE MEMORIA
+═══════════════════════════════════════
+
+Conversación día 1:
+Angel: "El lanzamiento de ObraSmart es el 1 de febrero"
+→ AMUN guarda: {categoria: "proyectos", contenido: "Lanzamiento ObraSmart: 1 febrero 2026"}
+
+Conversación día 5:
+Angel: "¿Cuánto falta para el lanzamiento?"
+→ AMUN consulta memoria, ve fecha, calcula días restantes
+→ Responde: "Faltan X días para el 1 de febrero"
+
+Conversación día 1:
+Angel: "Joder, llevo 2 horas haciendo un reel del teléfono 3D"
+→ AMUN guarda: {categoria: "trabajo", contenido: "Angel hace reels, proceso laborioso, ejemplo: teléfono 3D"}
+
+Conversación día 10:
+Angel: "Dame ideas para un reel"
+→ AMUN recuerda que hace reels, conoce ObraSmart
+→ Responde con ideas contextualizadas
+
+═══════════════════════════════════════
+RESUMEN DIARIO (OPCIONAL)
+═══════════════════════════════════════
+
+Al final del día, AMUN puede generar un resumen interno:
+- Qué se habló hoy
+- Decisiones tomadas
+- Tareas nuevas
+- Datos aprendidos
+
+Esto ayuda a comprimir la memoria sin perder contexto.
+
+═══════════════════════════════════════
+PRIVACIDAD
+═══════════════════════════════════════
+
+- Toda la memoria se guarda en la base de datos de Replit
+- Solo accesible por AMUN para este usuario
+- No compartir con terceros
+- Angel puede pedir ver o borrar su memoria cuando quiera

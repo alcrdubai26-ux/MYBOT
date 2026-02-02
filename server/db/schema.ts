@@ -143,6 +143,34 @@ export const proactiveTasks = pgTable("proactive_tasks", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Tareas y pendientes del usuario
+export const userTasks = pgTable("user_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  assistantId: uuid("assistant_id").references(() => assistants.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  status: text("status", { enum: ["pending", "in_progress", "completed", "cancelled"] }).default("pending"),
+  priority: integer("priority").default(5), // 1-10
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Proyectos del usuario
+export const userProjects = pgTable("user_projects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  assistantId: uuid("assistant_id").references(() => assistants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: text("status", { enum: ["active", "paused", "completed", "archived"] }).default("active"),
+  notes: jsonb("notes"), // Array de actualizaciones
+  startDate: timestamp("start_date"),
+  targetDate: timestamp("target_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Relaciones
 export const usersRelations = relations(users, ({ many }) => ({
   assistants: many(assistants),
