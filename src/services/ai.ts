@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { emailService } from "./email.js";
 import { obraSmartService } from "./obrasmart.js";
+import { excelService } from "./excel.js";
 
 const AMUN_PERSONALITY = `
 NOMBRE: AMUN
@@ -146,7 +147,46 @@ const OBRASMART_TOOLS = [
   },
 ];
 
-const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS];
+const EXCEL_TOOLS = [
+  {
+    name: "generate_subscription_report",
+    description: "Genera un informe Excel con las suscripciones encontradas en los emails. Usa esta herramienta cuando el usuario pida un Excel, tabla, informe o reporte de sus suscripciones o emails.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        emails: {
+          type: "STRING" as const,
+          description: "JSON string con los emails a analizar (resultado de search_emails o get_recent_emails)",
+        },
+      },
+      required: ["emails"],
+    },
+  },
+  {
+    name: "generate_excel_report",
+    description: "Genera un archivo Excel con datos personalizados. Usa cuando el usuario pida exportar datos a Excel, generar una tabla, o crear un informe.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        data: {
+          type: "STRING" as const,
+          description: "JSON string con array de objetos a exportar",
+        },
+        filename: {
+          type: "STRING" as const,
+          description: "Nombre del archivo (sin extensión)",
+        },
+        sheetName: {
+          type: "STRING" as const,
+          description: "Nombre de la hoja de Excel",
+        },
+      },
+      required: ["data"],
+    },
+  },
+];
+
+const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS, ...EXCEL_TOOLS];
 
 async function executeEmailTool(name: string, args: any): Promise<string> {
   try {
@@ -214,12 +254,56 @@ async function executeObraSmartTool(name: string, args: any): Promise<string> {
   }
 }
 
+async function executeExcelTool(name: string, args: any): Promise<string> {
+  try {
+    if (name === "generate_subscription_report") {
+      let emails: any[];
+      try {
+        emails = typeof args.emails === "string" ? JSON.parse(args.emails) : args.emails;
+      } catch {
+        return "Error: Los datos de emails no son válidos";
+      }
+      
+      const filePath = excelService.generateSubscriptionReport(emails);
+      return JSON.stringify({
+        success: true,
+        file: filePath,
+        message: "Excel generado con el informe de suscripciones"
+      });
+    }
+    
+    if (name === "generate_excel_report") {
+      let data: any[];
+      try {
+        data = typeof args.data === "string" ? JSON.parse(args.data) : args.data;
+      } catch {
+        return "Error: Los datos no son válidos";
+      }
+      
+      const filename = args.filename ? `${args.filename}.xlsx` : undefined;
+      const filePath = excelService.generateFromJson(data, filename, args.sheetName);
+      return JSON.stringify({
+        success: true,
+        file: filePath,
+        message: "Excel generado correctamente"
+      });
+    }
+    
+    return "Herramienta no reconocida";
+  } catch (err) {
+    return `Error generando Excel: ${(err as Error).message}`;
+  }
+}
+
 async function executeTool(name: string, args: any): Promise<string> {
   if (name === "get_recent_emails" || name === "search_emails") {
     return executeEmailTool(name, args);
   }
   if (name === "generate_budget") {
     return executeObraSmartTool(name, args);
+  }
+  if (name === "generate_subscription_report" || name === "generate_excel_report") {
+    return executeExcelTool(name, args);
   }
   return "Herramienta no reconocida";
 }
@@ -248,6 +332,7 @@ class AIService {
     Array<{ role: string; parts: { text: string }[] }>
   > = new Map();
   private amunAssistantId: string | null = null;
+  private lastGeneratedFiles: string[] = [];
 
   initialize(apiKey: string) {
     this.apiKey = apiKey;
@@ -508,7 +593,7 @@ class AIService {
 
       let finalMessage = message;
       if (history.length === 0) {
-        finalMessage = `${AMUN_PERSONALITY}${contextInfo}\n\nTIENES ACCESO A HERRAMIENTAS:\n- get_recent_emails: Para obtener correos recientes\n- search_emails: Para buscar correos específicos\n- generate_budget: Para generar presupuestos de construcción/reforma con ObraSmart Pro y BertIA\n\nCuando el usuario te pida algo relacionado con emails, USA las herramientas para obtener la información.\nCuando el usuario te pida un presupuesto de obra/reforma, USA generate_budget con la descripción detallada.\n\n---\n\nMensaje del usuario: ${message}`;
+        finalMessage = `${AMUN_PERSONALITY}${contextInfo}\n\nTIENES ACCESO A HERRAMIENTAS:\n- get_recent_emails: Para obtener correos recientes\n- search_emails: Para buscar correos específicos\n- generate_budget: Para generar presupuestos de construcción/reforma con ObraSmart Pro y BertIA\n- generate_subscription_report: Para generar un Excel con informe de suscripciones (pásale los emails obtenidos)\n- generate_excel_report: Para generar un Excel con cualquier tipo de datos\n\nFLUJO PARA INFORMES:\n1. Primero busca los datos (emails, etc.) con las herramientas correspondientes\n2. Luego genera el Excel con los datos obtenidos\n3. El archivo se enviará automáticamente al usuario\n\nCuando el usuario pida un Excel, tabla o informe organizado, USA las herramientas de Excel.\n\n---\n\nMensaje del usuario: ${message}`;
       } else if (contextInfo) {
         finalMessage = `[Contexto actualizado:${contextInfo}]\n\nMensaje: ${message}`;
       }
@@ -521,11 +606,22 @@ class AIService {
       let iterations = 0;
       const maxIterations = 5;
       
+      const generatedFiles: string[] = [];
+      
       while (functionCall && iterations < maxIterations) {
         console.log(`[AI] Function call: ${functionCall.name}`, functionCall.args);
         
         const toolResult = await executeTool(functionCall.name, functionCall.args);
         console.log(`[AI] Tool result length: ${toolResult.length} chars`);
+        
+        // Check if tool generated a file
+        try {
+          const parsed = JSON.parse(toolResult);
+          if (parsed.success && parsed.file) {
+            generatedFiles.push(parsed.file);
+            console.log(`[AI] File generated: ${parsed.file}`);
+          }
+        } catch {}
         
         // Send tool result back to model
         result = await chat.sendMessage([{
@@ -551,6 +647,13 @@ class AIService {
 
       this.saveConversation(assistantId, channelType, chatId, message, responseText).catch(() => {});
 
+      // Store generated files for retrieval
+      if (generatedFiles.length > 0) {
+        this.lastGeneratedFiles = generatedFiles;
+      } else {
+        this.lastGeneratedFiles = [];
+      }
+
       return responseText;
     } catch (error) {
       console.error("[AI] Error procesando mensaje:", error);
@@ -560,6 +663,12 @@ class AIService {
 
   clearHistory(conversationKey: string) {
     this.conversationHistory.delete(conversationKey);
+  }
+
+  getGeneratedFiles(): string[] {
+    const files = [...this.lastGeneratedFiles];
+    this.lastGeneratedFiles = [];
+    return files;
   }
 
   async addTask(assistantId: string, description: string, priority: number = 5, dueDate?: Date) {

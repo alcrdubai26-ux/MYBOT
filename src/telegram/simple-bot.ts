@@ -149,6 +149,16 @@ export function createSimpleTelegramBot(opts: SimpleTelegramBotOptions) {
                 } else {
                     await ctx.reply(aiResponse);
                 }
+                
+                // Send any generated files (Excel, etc.)
+                const generatedFiles = aiService.getGeneratedFiles();
+                for (const filePath of generatedFiles) {
+                    if (fs.existsSync(filePath)) {
+                        console.log(`[Telegram] Sending file: ${filePath}`);
+                        await ctx.replyWithDocument(new InputFile(filePath));
+                        fs.unlinkSync(filePath);
+                    }
+                }
             } else {
                 await ctx.reply(`Dijiste: "${transcription.text}"\n\nPero AMUN no está configurado.`);
             }
@@ -250,6 +260,16 @@ export function createSimpleTelegramBot(opts: SimpleTelegramBotOptions) {
                 const response = await aiService.processMessage(conversationKey, text);
                 await ctx.reply(response);
                 console.log(`[Telegram] Sent AI response to ${chatId}`);
+                
+                // Send any generated files (Excel, etc.)
+                const generatedFiles = aiService.getGeneratedFiles();
+                for (const filePath of generatedFiles) {
+                    if (fs.existsSync(filePath)) {
+                        console.log(`[Telegram] Sending file: ${filePath}`);
+                        await ctx.replyWithDocument(new InputFile(filePath));
+                        fs.unlinkSync(filePath);
+                    }
+                }
             } catch (err: any) {
                 const errorMsg = err?.message || String(err);
                 console.error("[Telegram] Error processing message with AI:", errorMsg);
