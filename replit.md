@@ -20,7 +20,7 @@ AMUN es el asistente de IA configurado con personalidad específica para Angel/O
 - **Personalidad**: Español de España, directo, sin rodeos, expresiones naturales
 - **Memoria persistente**: Guarda conversaciones y datos en PostgreSQL
 - **Canales**: Telegram (funcionando), WhatsApp (en desarrollo)
-- **IA**: Gemini 2.0 Flash Exp (chat), Nano Banana (imágenes), Veo 2.0 (videos)
+- **IA**: Gemini 1.5 Flash (chat), Nano Banana (imágenes), Veo 2.0 (videos)
 
 ### Capacidades multimedia
 - **Imágenes**: Comando `/imagen` o "genera una imagen de..."
