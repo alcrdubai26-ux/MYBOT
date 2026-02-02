@@ -1,7 +1,10 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { db } from "../../server/db/index.js";
 import { memory, conversations, messages, userTasks, userProjects, assistants } from "../../server/db/schema.js";
 import { eq, desc, and, sql } from "drizzle-orm";
+import * as fs from "fs";
+import * as path from "path";
 
 const AMUN_PERSONALITY = `
 NOMBRE: AMUN
@@ -92,7 +95,9 @@ const AMUN_ASSISTANT_NAME = "AMUN";
 
 class AIService {
   private genAI: GoogleGenerativeAI | null = null;
+  private genAINew: GoogleGenAI | null = null;
   private model: any = null;
+  private apiKey: string = "";
   private conversationHistory: Map<
     string,
     Array<{ role: string; parts: { text: string }[] }>
@@ -100,9 +105,12 @@ class AIService {
   private amunAssistantId: string | null = null;
 
   initialize(apiKey: string) {
+    this.apiKey = apiKey;
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    console.log("[AI] Gemini inicializado con personalidad AMUN");
+    this.genAINew = new GoogleGenAI({ apiKey });
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    console.log("[AI] Gemini 2.0 Flash inicializado con personalidad AMUN");
+    console.log("[AI] Nano Banana (imagen) y Veo 3.1 (video) habilitados");
     this.ensureAmunAssistant();
   }
 
@@ -401,6 +409,104 @@ class AIService {
       return true;
     } catch (err) {
       return false;
+    }
+  }
+
+  async generateImage(prompt: string, aspectRatio: string = "1:1"): Promise<{ success: boolean; imagePath?: string; error?: string }> {
+    if (!this.genAINew) {
+      return { success: false, error: "Servicio de IA no inicializado" };
+    }
+
+    try {
+      console.log(`[AI] Generando imagen con Nano Banana: ${prompt.substring(0, 50)}...`);
+      
+      const response = await this.genAINew.models.generateContent({
+        model: "gemini-2.0-flash-exp",
+        contents: prompt,
+        config: {
+          responseModalities: [Modality.TEXT, Modality.IMAGE],
+        },
+      });
+
+      const outputDir = path.join(process.cwd(), "generated");
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+
+      const timestamp = Date.now();
+      const imagePath = path.join(outputDir, `image_${timestamp}.png`);
+
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData?.mimeType?.startsWith("image/")) {
+          const imageData = Buffer.from(part.inlineData.data!, "base64");
+          fs.writeFileSync(imagePath, imageData);
+          console.log(`[AI] Imagen guardada: ${imagePath}`);
+          return { success: true, imagePath };
+        }
+      }
+
+      return { success: false, error: "No se generó imagen en la respuesta" };
+    } catch (error: any) {
+      console.error("[AI] Error generando imagen:", error);
+      return { success: false, error: error.message || "Error desconocido" };
+    }
+  }
+
+  async generateVideo(prompt: string, durationSeconds: number = 8): Promise<{ success: boolean; videoPath?: string; error?: string }> {
+    if (!this.genAINew) {
+      return { success: false, error: "Servicio de IA no inicializado" };
+    }
+
+    try {
+      console.log(`[AI] Generando video con Veo 3.1: ${prompt.substring(0, 50)}...`);
+      
+      let operation = await this.genAINew.models.generateVideos({
+        model: "veo-2.0-generate-001",
+        prompt: prompt,
+        config: {
+          aspectRatio: "16:9",
+          numberOfVideos: 1,
+        },
+      });
+
+      console.log("[AI] Esperando generación de video...");
+      
+      const maxWaitMs = 300000;
+      const startTime = Date.now();
+      
+      while (!operation.done && (Date.now() - startTime) < maxWaitMs) {
+        await new Promise(r => setTimeout(r, 10000));
+        operation = await this.genAINew.operations.getVideosOperation({ operation });
+        console.log("[AI] Video en progreso...");
+      }
+
+      if (!operation.done) {
+        return { success: false, error: "Timeout esperando generación de video" };
+      }
+
+      const outputDir = path.join(process.cwd(), "generated");
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+
+      const timestamp = Date.now();
+      const videoPath = path.join(outputDir, `video_${timestamp}.mp4`);
+
+      const generatedVideos = operation.response?.generatedVideos;
+      if (generatedVideos && generatedVideos.length > 0) {
+        const video = generatedVideos[0];
+        if (video.video?.videoBytes) {
+          const videoData = Buffer.from(video.video.videoBytes, "base64");
+          fs.writeFileSync(videoPath, videoData);
+          console.log(`[AI] Video guardado: ${videoPath}`);
+          return { success: true, videoPath };
+        }
+      }
+
+      return { success: false, error: "No se generó video en la respuesta" };
+    } catch (error: any) {
+      console.error("[AI] Error generando video:", error);
+      return { success: false, error: error.message || "Error desconocido" };
     }
   }
 }
