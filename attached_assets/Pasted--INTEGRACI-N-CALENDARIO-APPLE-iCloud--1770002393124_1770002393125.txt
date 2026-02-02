@@ -1,0 +1,141 @@
+═══════════════════════════════════════
+INTEGRACIÓN CALENDARIO APPLE (iCloud)
+═══════════════════════════════════════
+
+CONEXIÓN VÍA CALDAV:
+- Servidor: https://caldav.icloud.com
+- Usuario: en Secrets (APPLE_CALDAV_USER)
+- Contraseña: en Secrets (APPLE_CALDAV_PASS)
+
+LIBRERÍA RECOMENDADA:
+- tsdav (TypeScript DAV client)
+- npm install tsdav
+
+CAPACIDADES:
+- Leer eventos del calendario
+- Crear nuevos eventos
+- Modificar eventos existentes
+- Eliminar eventos (CON CONFIRMACIÓN)
+- Buscar disponibilidad
+
+PERMISOS:
+- Leer: sin confirmación
+- Crear/Modificar/Eliminar: SIEMPRE pedir confirmación
+
+═══════════════════════════════════════
+CÓDIGO DE INTEGRACIÓN
+═══════════════════════════════════════
+
+import { createDAVClient } from 'tsdav';
+
+class AppleCalendarService {
+  private client: any;
+  
+  async connect() {
+    this.client = await createDAVClient({
+      serverUrl: 'https://caldav.icloud.com',
+      credentials: {
+        username: process.env.APPLE_CALDAV_USER,
+        password: process.env.APPLE_CALDAV_PASS,
+      },
+      authMethod: 'Basic',
+      defaultAccountType: 'caldav',
+    });
+    
+    console.log('[Calendar] Conectado a iCloud Calendar');
+  }
+  
+  async getCalendars() {
+    const calendars = await this.client.fetchCalendars();
+    return calendars;
+  }
+  
+  async getEvents(startDate: Date, endDate: Date) {
+    const calendars = await this.client.fetchCalendars();
+    
+    const events = [];
+    for (const calendar of calendars) {
+      const calEvents = await this.client.fetchCalendarObjects({
+        calendar,
+        timeRange: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+        },
+      });
+      events.push(...calEvents);
+    }
+    
+    return events;
+  }
+  
+  async createEvent(event: {
+    title: string;
+    start: Date;
+    end: Date;
+    description?: string;
+    location?: string;
+  }) {
+    const calendars = await this.client.fetchCalendars();
+    const mainCalendar = calendars[0]; // O elegir uno específico
+    
+    const icsEvent = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:${event.start.toISOString().replace(/[-:]/g, '').split('.')[0]}Z
+DTEND:${event.end.toISOString().replace(/[-:]/g, '').split('.')[0]}Z
+SUMMARY:${event.title}
+DESCRIPTION:${event.description || ''}
+LOCATION:${event.location || ''}
+END:VEVENT
+END:VCALENDAR`;
+
+    await this.client.createCalendarObject({
+      calendar: mainCalendar,
+      filename: `${Date.now()}.ics`,
+      iCalString: icsEvent,
+    });
+  }
+  
+  async getTodayEvents() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    return this.getEvents(today, tomorrow);
+  }
+  
+  async getWeekEvents() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    
+    return this.getEvents(today, nextWeek);
+  }
+}
+
+export const appleCalendarService = new AppleCalendarService();
+
+═══════════════════════════════════════
+EJEMPLOS DE USO EN CONVERSACIÓN
+═══════════════════════════════════════
+
+Angel: "¿Qué tengo hoy?"
+AMUN: "Tienes 3 cosas:
+       - 10:00 Llamada con proveedor
+       - 14:00 Comida con Juan
+       - 17:00 Dentista
+       ¿Necesitas más detalles de alguna?"
+
+Angel: "Ponme una reunión mañana a las 11 con el equipo de marketing"
+AMUN: "¿Creo este evento?
+       📅 Reunión equipo marketing
+       🕐 Mañana 11:00 - 12:00
+       ¿Confirmo?"
+
+Angel: "Sí"
+AMUN: "Listo, creado en tu calendario."
+
+Angel: "¿Tengo algo el viernes por la tarde?"
+AMUN: "El viernes por la tarde tienes libre a partir de las 15:00."

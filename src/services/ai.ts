@@ -8,6 +8,7 @@ import * as path from "path";
 import { emailService } from "./email.js";
 import { obraSmartService } from "./obrasmart.js";
 import { excelService } from "./excel.js";
+import { appleCalendarService } from "./calendar.js";
 
 const AMUN_PERSONALITY = `
 NOMBRE: AMUN
@@ -186,7 +187,94 @@ const EXCEL_TOOLS = [
   },
 ];
 
-const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS, ...EXCEL_TOOLS];
+const CALENDAR_TOOLS = [
+  {
+    name: "get_today_events",
+    description: "Obtiene los eventos del calendario de hoy. Usa cuando el usuario pregunte qué tiene hoy, su agenda de hoy, o citas de hoy.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_week_events",
+    description: "Obtiene los eventos de la próxima semana. Usa cuando el usuario pregunte por su semana, agenda semanal, o qué tiene los próximos días.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "get_events_for_date",
+    description: "Obtiene los eventos de una fecha específica. Usa cuando el usuario pregunte por un día concreto (mañana, el viernes, el 15 de marzo, etc).",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        date: {
+          type: "STRING" as const,
+          description: "Fecha en formato YYYY-MM-DD",
+        },
+      },
+      required: ["date"],
+    },
+  },
+  {
+    name: "check_availability",
+    description: "Comprueba si hay disponibilidad en una fecha y hora específica. Usa cuando el usuario pregunte si tiene algo a cierta hora o si está libre.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        date: {
+          type: "STRING" as const,
+          description: "Fecha en formato YYYY-MM-DD",
+        },
+        time: {
+          type: "STRING" as const,
+          description: "Hora en formato HH:MM (24h)",
+        },
+      },
+      required: ["date", "time"],
+    },
+  },
+  {
+    name: "create_calendar_event",
+    description: "Crea un nuevo evento en el calendario. IMPORTANTE: Siempre pide confirmación antes de crear. Usa cuando el usuario quiera añadir una cita, reunión, o evento.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        title: {
+          type: "STRING" as const,
+          description: "Título del evento",
+        },
+        date: {
+          type: "STRING" as const,
+          description: "Fecha en formato YYYY-MM-DD",
+        },
+        startTime: {
+          type: "STRING" as const,
+          description: "Hora de inicio en formato HH:MM (24h)",
+        },
+        endTime: {
+          type: "STRING" as const,
+          description: "Hora de fin en formato HH:MM (24h). Si no se especifica, 1 hora después del inicio.",
+        },
+        description: {
+          type: "STRING" as const,
+          description: "Descripción opcional del evento",
+        },
+        location: {
+          type: "STRING" as const,
+          description: "Ubicación opcional del evento",
+        },
+      },
+      required: ["title", "date", "startTime"],
+    },
+  },
+];
+
+const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS, ...EXCEL_TOOLS, ...CALENDAR_TOOLS];
 
 async function executeEmailTool(name: string, args: any): Promise<string> {
   try {
@@ -295,6 +383,117 @@ async function executeExcelTool(name: string, args: any): Promise<string> {
   }
 }
 
+async function executeCalendarTool(name: string, args: any): Promise<string> {
+  try {
+    if (!appleCalendarService.isConfigured()) {
+      return "Calendario no configurado. Faltan las credenciales APPLE_CALDAV_USER y APPLE_CALDAV_PASS.";
+    }
+
+    const initialized = await appleCalendarService.initialize();
+    if (!initialized) {
+      return "No se pudo conectar al calendario de iCloud. Verifica las credenciales.";
+    }
+
+    if (name === "get_today_events") {
+      const events = await appleCalendarService.getTodayEvents();
+      if (events.length === 0) {
+        return "No tienes eventos programados para hoy.";
+      }
+      return `Eventos de hoy:\n${appleCalendarService.formatEventsForDisplay(events)}`;
+    }
+
+    if (name === "get_week_events") {
+      const events = await appleCalendarService.getWeekEvents();
+      if (events.length === 0) {
+        return "No tienes eventos programados para los próximos 7 días.";
+      }
+      
+      const eventsByDay = new Map<string, typeof events>();
+      for (const event of events) {
+        const dayKey = event.start.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+        if (!eventsByDay.has(dayKey)) {
+          eventsByDay.set(dayKey, []);
+        }
+        eventsByDay.get(dayKey)!.push(event);
+      }
+      
+      let result = "Eventos de la semana:\n";
+      for (const [day, dayEvents] of eventsByDay) {
+        result += `\n📅 ${day}:\n${appleCalendarService.formatEventsForDisplay(dayEvents)}\n`;
+      }
+      return result;
+    }
+
+    if (name === "get_events_for_date") {
+      const date = new Date(args.date);
+      const events = await appleCalendarService.getEventsForDate(date);
+      const dayName = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+      
+      if (events.length === 0) {
+        return `No tienes eventos programados para el ${dayName}.`;
+      }
+      return `Eventos del ${dayName}:\n${appleCalendarService.formatEventsForDisplay(events)}`;
+    }
+
+    if (name === "check_availability") {
+      const date = new Date(args.date);
+      const events = await appleCalendarService.getEventsForDate(date);
+      
+      const [hours, minutes] = args.time.split(':').map(Number);
+      const checkTime = new Date(date);
+      checkTime.setHours(hours, minutes, 0, 0);
+      
+      const conflicting = events.filter(e => {
+        return checkTime >= e.start && checkTime < e.end;
+      });
+      
+      const dayName = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric' });
+      
+      if (conflicting.length === 0) {
+        return `Tienes libre el ${dayName} a las ${args.time}.`;
+      }
+      
+      return `El ${dayName} a las ${args.time} tienes: ${conflicting.map(e => e.title).join(', ')}`;
+    }
+
+    if (name === "create_calendar_event") {
+      const date = new Date(args.date);
+      const [startHours, startMinutes] = args.startTime.split(':').map(Number);
+      
+      const start = new Date(date);
+      start.setHours(startHours, startMinutes, 0, 0);
+      
+      let end: Date;
+      if (args.endTime) {
+        const [endHours, endMinutes] = args.endTime.split(':').map(Number);
+        end = new Date(date);
+        end.setHours(endHours, endMinutes, 0, 0);
+      } else {
+        end = new Date(start.getTime() + 3600000);
+      }
+
+      const result = await appleCalendarService.createEvent({
+        title: args.title,
+        start,
+        end,
+        description: args.description,
+        location: args.location,
+      });
+
+      const dayName = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+      return JSON.stringify({
+        success: true,
+        message: `Evento "${args.title}" creado para el ${dayName} a las ${args.startTime}`,
+        uid: result.uid,
+      });
+    }
+
+    return "Herramienta de calendario no reconocida";
+  } catch (err) {
+    return `Error con el calendario: ${(err as Error).message}`;
+  }
+}
+
 async function executeTool(name: string, args: any): Promise<string> {
   if (name === "get_recent_emails" || name === "search_emails") {
     return executeEmailTool(name, args);
@@ -304,6 +503,9 @@ async function executeTool(name: string, args: any): Promise<string> {
   }
   if (name === "generate_subscription_report" || name === "generate_excel_report") {
     return executeExcelTool(name, args);
+  }
+  if (name === "get_today_events" || name === "get_week_events" || name === "get_events_for_date" || name === "check_availability" || name === "create_calendar_event") {
+    return executeCalendarTool(name, args);
   }
   return "Herramienta no reconocida";
 }

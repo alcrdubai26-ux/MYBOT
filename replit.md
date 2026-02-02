@@ -72,6 +72,13 @@ AMUN es el asistente de IA configurado con personalidad específica para Angel/O
 - Borradores expiran en 24 horas
 - Validación de propiedad en cada acción
 
+### Calendario Apple (iCloud)
+- Conexión: CalDAV via tsdav
+- Servidor: https://caldav.icloud.com
+- Secrets: `APPLE_CALDAV_USER` (email iCloud), `APPLE_CALDAV_PASS` (contraseña de app específica)
+- Capacidades: Leer eventos, crear citas (con confirmación), consultar disponibilidad
+- Comandos: "¿Qué tengo hoy?", "Ponme una reunión mañana a las 11", "¿Tengo algo el viernes?"
+
 ### Notas de integración
 - Outlook: Usuario rechazó configuración (pendiente si necesario)
 - Instagram/Facebook: Requiere META_ACCESS_TOKEN de Meta Business Suite
