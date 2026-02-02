@@ -1,4 +1,5 @@
 import type { EventLogEntry } from "./app-events";
+import type { CompactionStatus } from "./app-tool-stream";
 import type { DevicePairingList } from "./controllers/devices";
 import type { ExecApprovalRequest } from "./controllers/exec-approval";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals";
@@ -24,6 +25,8 @@ import type {
   SessionsListResult,
   SkillStatusReport,
   StatusSummary,
+  ConfigUiHints,
+  ConfigUiHint,
 } from "./types";
 import type { ChatAttachment, ChatQueueItem, CronFormState } from "./ui-types";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form";
@@ -33,6 +36,8 @@ export type AppViewState = {
   password: string;
   tab: Tab;
   onboarding: boolean;
+  onboardingStep: number;
+  onboardingCategories: string[];
   basePath: string;
   connected: boolean;
   theme: ThemeMode;
@@ -83,7 +88,7 @@ export type AppViewState = {
   configSnapshot: ConfigSnapshot | null;
   configSchema: unknown | null;
   configSchemaLoading: boolean;
-  configUiHints: Record<string, unknown>;
+  configUiHints: ConfigUiHints;
   configForm: Record<string, unknown> | null;
   configFormOriginal: Record<string, unknown> | null;
   configFormMode: "form" | "raw";
@@ -144,6 +149,22 @@ export type AppViewState = {
   logsLevelFilters: Record<LogLevel, boolean>;
   logsAutoFollow: boolean;
   logsTruncated: boolean;
+  chatStreamStartedAt: number | null;
+  compactionStatus: CompactionStatus | null;
+  sidebarOpen: boolean;
+  sidebarContent: string | null;
+  sidebarError: string | null;
+  splitRatio: number;
+  configSearchQuery: string;
+  configActiveSection: string | null;
+  configActiveSubsection: string | null;
+  configSchemaVersion: string | null;
+  applySessionKey: string;
+  logsCursor: number | null;
+  logsLastFetchAt: number | null;
+  logsLimit: number;
+  logsMaxBytes: number;
+  refreshSessionsAfterChat: Set<string>;
   client: GatewayBrowserClient | null;
   connect: () => void;
   setTab: (tab: Tab) => void;
@@ -173,19 +194,19 @@ export type AppViewState = {
   handleConfigFormUpdate: (path: string, value: unknown) => void;
   handleConfigFormModeChange: (mode: "form" | "raw") => void;
   handleConfigRawChange: (raw: string) => void;
-  handleInstallSkill: (key: string) => Promise<void>;
+  handleInstallSkill: (key: string, name: string, installId: string) => Promise<void>;
   handleUpdateSkill: (key: string) => Promise<void>;
   handleToggleSkillEnabled: (key: string, enabled: boolean) => Promise<void>;
   handleUpdateSkillEdit: (key: string, value: string) => void;
-  handleSaveSkillApiKey: (key: string, apiKey: string) => Promise<void>;
-  handleCronToggle: (jobId: string, enabled: boolean) => Promise<void>;
-  handleCronRun: (jobId: string) => Promise<void>;
-  handleCronRemove: (jobId: string) => Promise<void>;
+  handleSaveSkillApiKey: (key: string) => Promise<void>;
+  handleCronToggle: (job: CronJob, enabled: boolean) => Promise<void>;
+  handleCronRun: (job: CronJob) => Promise<void>;
+  handleCronRemove: (job: CronJob) => Promise<void>;
   handleCronAdd: () => Promise<void>;
   handleCronRunsLoad: (jobId: string) => Promise<void>;
-  handleCronFormUpdate: (path: string, value: unknown) => void;
+  handleCronFormUpdate: (patch: Partial<CronFormState>) => void;
   handleSessionsLoad: () => Promise<void>;
-  handleSessionsPatch: (key: string, patch: unknown) => Promise<void>;
+  handleSessionsPatch: (key: string, patch: any) => Promise<void>;
   handleLoadNodes: () => Promise<void>;
   handleLoadPresence: () => Promise<void>;
   handleLoadSkills: () => Promise<void>;
@@ -196,13 +217,21 @@ export type AppViewState = {
   setPassword: (next: string) => void;
   setSessionKey: (next: string) => void;
   setChatMessage: (next: string) => void;
-  handleChatSend: () => Promise<void>;
-  handleChatAbort: () => Promise<void>;
+  handleSendChat: (messageOverride?: string, opts?: any) => Promise<void>;
+  handleAbortChat: () => Promise<void>;
   handleChatSelectQueueItem: (id: string) => void;
-  handleChatDropQueueItem: (id: string) => void;
+  removeQueuedMessage: (id: string) => void;
   handleChatClearQueue: () => void;
   handleLogsFilterChange: (next: string) => void;
   handleLogsLevelFilterToggle: (level: LogLevel) => void;
   handleLogsAutoFollowToggle: (next: boolean) => void;
   handleCallDebugMethod: (method: string, params: string) => Promise<void>;
+  resetToolStream: () => void;
+  resetChatScroll: () => void;
+  exportLogs: (lines: string[], label: string) => void;
+  handleChatScroll: (event: Event) => void;
+  handleLogsScroll: (event: Event) => void;
+  handleOpenSidebar: (content: string) => void;
+  handleCloseSidebar: () => void;
+  handleSplitRatioChange: (ratio: number) => void;
 };

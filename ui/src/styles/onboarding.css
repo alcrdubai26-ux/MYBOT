@@ -1,0 +1,301 @@
+/* ===========================================
+   Onboarding Overlay & Card
+   =========================================== */
+
+.onboarding-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(10, 15, 30, 0.9);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: fade-in 0.4s ease-out;
+}
+
+.onboarding-card {
+    width: 100%;
+    max-width: 600px;
+    background: var(--card);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 var(--card-highlight);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: rise 0.5s var(--ease-out);
+}
+
+.onboarding-header {
+    padding: 40px;
+    text-align: center;
+    background: linear-gradient(to bottom, var(--secondary), transparent);
+}
+
+.onboarding-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.step-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--secondary);
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--muted);
+    transition: all 0.3s ease;
+}
+
+.step-dot.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.step-line {
+    width: 40px;
+    height: 2px;
+    background: var(--border);
+}
+
+.step-line.active {
+    background: var(--accent);
+}
+
+.onboarding-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.03em;
+    color: var(--text-strong);
+}
+
+.onboarding-header p {
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.onboarding-body {
+    padding: 0 40px 40px;
+    flex: 1;
+    min-height: 320px;
+}
+
+.onboarding-footer {
+    padding: 24px 40px;
+    background: var(--secondary);
+    display: flex;
+    align-items: center;
+    border-top: 1px solid var(--border);
+}
+
+/* ===========================================
+   Step 1: Welcome & Hero
+   =========================================== */
+
+.welcome-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+
+.hero-icon {
+    font-size: 64px;
+    text-align: center;
+    filter: drop-shadow(0 0 20px rgba(var(--accent-rgb), 0.3));
+}
+
+.hero-features {
+    display: grid;
+    gap: 20px;
+}
+
+.feature-item {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 16px;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+}
+
+.feature-item .icon {
+    font-size: 24px;
+}
+
+.feature-item div {
+    display: flex;
+    flex-direction: column;
+}
+
+.feature-item strong {
+    font-size: 15px;
+    color: var(--text-strong);
+}
+
+.feature-item span {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+/* ===========================================
+   Step 2: Channel Cards
+   =========================================== */
+
+.channel-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.channel-card {
+    padding: 20px;
+    background: var(--bg-elevated);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+}
+
+.channel-card:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
+    transform: translateY(-2px);
+}
+
+.channel-card.selected {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+}
+
+.channel-icon {
+    font-size: 32px;
+}
+
+.channel-info strong {
+    display: block;
+    font-size: 16px;
+}
+
+.channel-info span {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.channel-check {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    opacity: 0;
+    transform: scale(0.5);
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.channel-card.selected .channel-check {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* ===========================================
+   Step 3: Skills
+   =========================================== */
+
+.skills-onboarding {
+    display: grid;
+    gap: 12px;
+}
+
+.skill-category-pill {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+}
+
+.skill-category-pill .icon {
+    font-size: 20px;
+}
+
+.skill-category-pill span:not(.icon) {
+    flex: 1;
+    font-weight: 500;
+}
+
+/* Switch Styles */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--border-strong);
+    transition: .4s;
+    border-radius: 24px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked+.slider {
+    background-color: var(--accent);
+}
+
+input:checked+.slider:before {
+    transform: translateX(20px);
+}

@@ -1,5 +1,6 @@
 import { LitElement, html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
+import type { AppViewState } from "./app-view-state";
 import type { EventLogEntry } from "./app-events";
 import type { DevicePairingList } from "./controllers/devices";
 import type { ExecApprovalRequest } from "./controllers/exec-approval";
@@ -70,8 +71,15 @@ import {
   resetToolStream as resetToolStreamInternal,
   type ToolStreamEntry,
 } from "./app-tool-stream";
+import { type SkillMessage } from "./controllers/skills";
 import { resolveInjectedAssistantIdentity } from "./assistant-identity";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity";
+import { loadSessions } from "./controllers/sessions";
+import { loadNodes } from "./controllers/nodes";
+import { loadPresence } from "./controllers/presence";
+import { loadSkills } from "./controllers/skills";
+import { loadDebug } from "./controllers/debug";
+import { loadLogs } from "./controllers/logs";
 import { type Language, initLanguage, setLanguage as setI18nLanguage } from "./i18n.js";
 import { loadSettings, type UiSettings } from "./storage";
 import { type ChatAttachment, type ChatQueueItem, type CronFormState } from "./ui-types";
@@ -106,6 +114,8 @@ export class OpenClawApp extends LitElement {
   @state() password = "";
   @state() tab: Tab = "chat";
   @state() onboarding = resolveOnboardingMode();
+  @state() onboardingStep = 1;
+  @state() onboardingCategories: string[] = ['productivity', 'creativity', 'home', 'finance'];
   @state() connected = false;
   @state() theme: ThemeMode = this.settings.theme ?? "system";
   @state() themeResolved: ResolvedTheme = "dark";
@@ -476,13 +486,45 @@ export class OpenClawApp extends LitElement {
     }, 200);
   }
 
-  handleSplitRatioChange(ratio: number) {
-    const newRatio = Math.max(0.4, Math.min(0.7, ratio));
-    this.splitRatio = newRatio;
-    this.applySettings({ ...this.settings, splitRatio: newRatio });
+  async handleConfigLoad() { await this.loadOverview(); }
+  async handleConfigSave() { await this.handleChannelConfigSave(); }
+  async handleConfigApply() { }
+  handleConfigFormUpdate(path: string, value: unknown) { }
+  handleConfigFormModeChange(mode: "form" | "raw") { this.configFormMode = mode; }
+  handleConfigRawChange(raw: string) { this.configRaw = raw; }
+  async handleInstallSkill(key: string) { }
+  async handleUpdateSkill(key: string) { }
+  async handleToggleSkillEnabled(key: string, enabled: boolean) { }
+  handleUpdateSkillEdit(key: string, value: string) { this.skillEdits = { ...this.skillEdits, [key]: value }; }
+  async handleSaveSkillApiKey(key: string, apiKey: string) { }
+  async handleCronToggle(jobId: string, enabled: boolean) { }
+  async handleCronRun(jobId: string) { }
+  async handleCronRemove(jobId: string) { }
+  async handleCronAdd() { }
+  async handleCronRunsLoad(jobId: string) { }
+  handleCronFormUpdate(path: string, value: unknown) { }
+  async handleSessionsLoad() { await loadSessions(this as any); }
+  async handleSessionsPatch(key: string, patch: unknown) { }
+  async handleLoadNodes() { await loadNodes(this as any); }
+  async handleLoadPresence() { await loadPresence(this as any); }
+  async handleLoadSkills() { await loadSkills(this as any); }
+  async handleLoadDebug() { await loadDebug(this as any); }
+  async handleLoadLogs() { await loadLogs(this as any); }
+  async handleDebugCall() { }
+  async handleRunUpdate() { }
+  setPassword(next: string) { this.password = next; }
+  setSessionKey(next: string) { this.sessionKey = next; }
+  setChatMessage(next: string) { this.chatMessage = next; }
+  handleChatSelectQueueItem(id: string) { }
+  handleChatClearQueue() { this.chatQueue = []; }
+  handleLogsFilterChange(next: string) { this.logsFilterText = next; }
+  handleLogsLevelFilterToggle(level: LogLevel) {
+    this.logsLevelFilters = { ...this.logsLevelFilters, [level]: !this.logsLevelFilters[level] };
   }
+  handleLogsAutoFollowToggle(next: boolean) { this.logsAutoFollow = next; }
+  async handleCallDebugMethod(method: string, params: string) { }
 
   render() {
-    return renderApp(this);
+    return renderApp(this as unknown as AppViewState);
   }
 }

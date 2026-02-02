@@ -31,6 +31,8 @@ type LifecycleHost = {
   logsEntries: unknown[];
   popStateHandler: () => void;
   topbarObserver: ResizeObserver | null;
+  onboarding: boolean;
+  settings: any;
 };
 
 export function handleConnected(host: LifecycleHost) {
@@ -48,6 +50,25 @@ export function handleConnected(host: LifecycleHost) {
   if (host.tab === "debug") {
     startDebugPolling(host as unknown as Parameters<typeof startDebugPolling>[0]);
   }
+
+  // Fetch user profile to check onboarding status
+  void (async () => {
+    try {
+      const resp = await fetch("/api/user");
+      if (resp.ok) {
+        const user = await resp.json();
+        host.onboarding = !user.onboardingCompleted;
+        if (user.preferredChannel) {
+          host.settings = {
+            ...host.settings,
+            preferredChannel: user.preferredChannel,
+          };
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch user profile", e);
+    }
+  })();
 }
 
 export function handleFirstUpdated(host: LifecycleHost) {

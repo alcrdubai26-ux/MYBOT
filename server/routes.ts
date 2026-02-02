@@ -1,8 +1,8 @@
 import { Express } from "express";
 import { setupAuth } from "./auth.js";
 import { db } from "./db/index.js";
-import { assistants, channelConnections } from "./db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { assistants, channelConnections, oauthConnections, userSkills, memory, userTasks, proactiveTasks } from "./db/schema.js";
+import { eq, and, desc } from "drizzle-orm";
 import { MultiTenantWhatsAppHandler } from "../src/channels/whatsapp/multiTenantHandler.js";
 import { MultiTenantTelegramHandler } from "../src/channels/telegram/multiTenantHandler.js";
 import { emailService } from "../src/services/email.js";
@@ -10,9 +10,14 @@ import { browserService } from "../src/services/browser.js";
 import { gammaService } from "../src/services/gamma.js";
 import { socialService } from "../src/services/social.js";
 import { appleCalendarService } from "../src/services/calendar.js";
+import { stripeService } from "../src/services/stripe.js";
+import { healthService } from "../src/services/health.js";
+import { users, userHealthData } from "./db/schema.js";
+import skillsRouter from "./routes/skills.js";
 
 export function registerRoutes(app: Express) {
     setupAuth(app);
+    app.use("/api", skillsRouter);
 
     app.get("/api/assistants", async (req, res) => {
         if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -57,7 +62,7 @@ export function registerRoutes(app: Express) {
     });
 
     const isDev = process.env.NODE_ENV !== "production";
-    
+
     app.get("/api/channels/status", async (req, res) => {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
@@ -79,30 +84,30 @@ export function registerRoutes(app: Express) {
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
         const assistantId = "default";
         const handler = MultiTenantWhatsAppHandler.getInstance();
-        
+
         try {
             const connection = await handler.connect(userId, assistantId);
-            
+
             const maxWait = 10000;
             const startTime = Date.now();
             while (Date.now() - startTime < maxWait) {
                 const conn = handler.getConnection(userId, assistantId);
                 if (conn?.qrDataUrl) {
-                    return res.json({ 
+                    return res.json({
                         message: "Escanea el código QR con tu WhatsApp",
-                        qrDataUrl: conn.qrDataUrl 
+                        qrDataUrl: conn.qrDataUrl
                     });
                 }
                 if (conn?.status === "connected") {
-                    return res.json({ 
+                    return res.json({
                         message: "WhatsApp ya está conectado",
-                        connected: true 
+                        connected: true
                     });
                 }
                 await new Promise(r => setTimeout(r, 500));
             }
-            
-            res.json({ 
+
+            res.json({
                 message: "Generando código QR... Haz clic en 'Wait for scan' para esperar",
                 qrDataUrl: connection?.qrDataUrl || null
             });
@@ -117,7 +122,7 @@ export function registerRoutes(app: Express) {
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
         const assistantId = "default";
         const handler = MultiTenantWhatsAppHandler.getInstance();
-        
+
         try {
             const maxWait = 60000;
             const startTime = Date.now();
@@ -127,10 +132,10 @@ export function registerRoutes(app: Express) {
                     return res.json({ connected: true, message: "WhatsApp conectado exitosamente" });
                 }
                 if (conn?.qrDataUrl) {
-                    return res.json({ 
-                        connected: false, 
+                    return res.json({
+                        connected: false,
                         message: "Escanea el código QR",
-                        qrDataUrl: conn.qrDataUrl 
+                        qrDataUrl: conn.qrDataUrl
                     });
                 }
                 await new Promise(r => setTimeout(r, 1000));
@@ -146,7 +151,7 @@ export function registerRoutes(app: Express) {
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
         const assistantId = "default";
         const handler = MultiTenantWhatsAppHandler.getInstance();
-        
+
         try {
             await handler.disconnect(userId, assistantId);
             res.json({ message: "Sesión de WhatsApp cerrada" });
@@ -174,8 +179,8 @@ export function registerRoutes(app: Express) {
 
         const handler = MultiTenantWhatsAppHandler.getInstance();
         const connection = await handler.connect(user.id, assistantId);
-        res.json({ 
-            status: connection?.status, 
+        res.json({
+            status: connection?.status,
             qr: connection?.qrDataUrl,
             hasQr: !!connection?.qrDataUrl
         });
@@ -188,18 +193,18 @@ export function registerRoutes(app: Express) {
         const { token } = req.body;
 
         if (!token) {
-            return res.status(400).json({ 
-                message: "Se requiere el token del bot de Telegram. Obtenlo de @BotFather" 
+            return res.status(400).json({
+                message: "Se requiere el token del bot de Telegram. Obtenlo de @BotFather"
             });
         }
 
         try {
             const handler = MultiTenantTelegramHandler.getInstance();
             const connection = await handler.connect(userId, "default", token);
-            res.json({ 
+            res.json({
                 status: connection?.status,
-                message: connection?.status === "connected" 
-                    ? "Bot de Telegram conectado. Ahora puedes enviarle mensajes." 
+                message: connection?.status === "connected"
+                    ? "Bot de Telegram conectado. Ahora puedes enviarle mensajes."
                     : "Error al conectar"
             });
         } catch (err) {
@@ -213,9 +218,9 @@ export function registerRoutes(app: Express) {
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
         const handler = MultiTenantTelegramHandler.getInstance();
         const bots = handler.getUserBots(userId);
-        res.json({ 
+        res.json({
             connected: bots.some(b => b.status === "connected"),
-            bots 
+            bots
         });
     });
 
@@ -236,7 +241,7 @@ export function registerRoutes(app: Express) {
         if (!token) return res.status(400).json({ message: "Telegram token is required" });
 
         const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assistantId);
-        
+
         if (isValidUUID) {
             const [existing] = await db.select().from(channelConnections)
                 .where(and(eq(channelConnections.assistantId, assistantId), eq(channelConnections.channelType, "telegram")))
@@ -271,7 +276,7 @@ export function registerRoutes(app: Express) {
     app.post("/api/email/send", async (req, res) => {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const { to, subject, body, html, from, cc, bcc } = req.body;
-        
+
         if (!to || !subject || !body) {
             return res.status(400).json({ error: "to, subject y body son requeridos" });
         }
@@ -289,11 +294,41 @@ export function registerRoutes(app: Express) {
         res.json({ emails });
     });
 
+    // --- Health & Apple Watch Integrations ---
+    app.post("/api/health/sync", async (req, res) => {
+        if (!req.isAuthenticated()) return res.sendStatus(401);
+        const user = req.user as any;
+        const { metrics } = req.body;
+
+        if (!Array.isArray(metrics)) {
+            return res.status(400).json({ message: "Metrics must be an array" });
+        }
+
+        try {
+            await healthService.syncHealthData(user.id, metrics);
+            res.json({ success: true, message: `${metrics.length} metrics synced` });
+        } catch (err: any) {
+            res.status(500).json({ message: err.message });
+        }
+    });
+
+    app.get("/api/health/summary", async (req, res) => {
+        if (!req.isAuthenticated()) return res.sendStatus(401);
+        const user = req.user as any;
+
+        try {
+            const summary = await healthService.getHealthSummary(user.id);
+            res.json({ summary });
+        } catch (err: any) {
+            res.status(500).json({ message: err.message });
+        }
+    });
+
     app.get("/api/email/search", async (req, res) => {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const query = req.query.q as string;
         const count = parseInt(req.query.count as string) || 10;
-        
+
         if (!query) {
             return res.status(400).json({ error: "query param 'q' es requerido" });
         }
@@ -307,7 +342,7 @@ export function registerRoutes(app: Express) {
     app.post("/api/browser/navigate", async (req, res) => {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const { url, sessionId } = req.body;
-        
+
         if (!url) {
             return res.status(400).json({ error: "url es requerido" });
         }
@@ -324,7 +359,7 @@ export function registerRoutes(app: Express) {
     });
 
     app.get("/api/browser/allowed-domains", (req, res) => {
-        res.json({ 
+        res.json({
             allowed: browserService.getAllowedDomains(),
             blocked: browserService.getBlockedDomains()
         });
@@ -334,7 +369,7 @@ export function registerRoutes(app: Express) {
     app.post("/api/gamma/create", async (req, res) => {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const { topic, slideCount } = req.body;
-        
+
         if (!topic) {
             return res.status(400).json({ error: "topic es requerido" });
         }
@@ -361,7 +396,7 @@ export function registerRoutes(app: Express) {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
         const { platform, content, hashtags } = req.body;
-        
+
         if (!platform || !content) {
             return res.status(400).json({ error: "platform y content son requeridos" });
         }
@@ -379,7 +414,7 @@ export function registerRoutes(app: Express) {
     app.post("/api/social/generate-content", async (req, res) => {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const { topic, platform } = req.body;
-        
+
         if (!topic || !platform) {
             return res.status(400).json({ error: "topic y platform son requeridos" });
         }
@@ -414,7 +449,7 @@ export function registerRoutes(app: Express) {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
         const { draftId } = req.body;
-        
+
         if (!draftId) {
             return res.status(400).json({ error: "draftId es requerido" });
         }
@@ -431,7 +466,7 @@ export function registerRoutes(app: Express) {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const userId = req.isAuthenticated() ? (req.user as any).id : "guest";
         const { draftId, approvalToken } = req.body;
-        
+
         if (!draftId || !approvalToken) {
             return res.status(400).json({ error: "draftId y approvalToken son requeridos" });
         }
@@ -446,36 +481,108 @@ export function registerRoutes(app: Express) {
         res.json({ metrics });
     });
 
+    // --- Billing & Monetization ---
+    app.get("/api/user/plan", async (req, res) => {
+        if (!req.isAuthenticated()) return res.sendStatus(401);
+        const user = req.user as any;
+        const [dbUser] = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
+        res.json({ plan: dbUser?.plan || "free" });
+    });
+
+    app.post("/api/billing/create-checkout", async (req, res) => {
+        if (!req.isAuthenticated()) return res.sendStatus(401);
+        const user = req.user as any;
+        const { plan } = req.body;
+
+        try {
+            const session = await stripeService.createCheckoutSession(user.id, user.email, plan);
+            res.json({ url: session.url });
+        } catch (err: any) {
+            res.status(400).json({ message: err.message });
+        }
+    });
+
+    app.post("/api/billing/create-portal", async (req, res) => {
+        if (!req.isAuthenticated()) return res.sendStatus(401);
+        const user = req.user as any;
+        const [dbUser] = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
+
+        if (!dbUser?.stripeCustomerId) {
+            return res.status(400).json({ message: "No active subscription found" });
+        }
+
+        try {
+            const session = await stripeService.createPortalSession(dbUser.stripeCustomerId);
+            res.json({ url: session.url });
+        } catch (err: any) {
+            res.status(400).json({ message: err.message });
+        }
+    });
+
+    // Special route for Stripe Webhooks (Note: need raw body in production)
+    app.post("/api/billing/webhook", async (req, res) => {
+        try {
+            await stripeService.handleWebhook(req.body);
+            res.sendStatus(200);
+        } catch (err: any) {
+            console.error("Webhook error:", err.message);
+            res.status(400).send(`Webhook Error: ${err.message}`);
+        }
+    });
+
     // Calendar test endpoint
     app.get("/api/calendar/test", async (req, res) => {
         try {
             const configured = appleCalendarService.isConfigured();
             if (!configured) {
-                return res.json({ 
+                return res.json({
                     status: "not_configured",
-                    message: "Faltan APPLE_CALDAV_USER o APPLE_CALDAV_PASS" 
+                    message: "Faltan APPLE_CALDAV_USER o APPLE_CALDAV_PASS"
                 });
             }
-            
+
             const initialized = await appleCalendarService.initialize();
             if (!initialized) {
-                return res.json({ 
+                return res.json({
                     status: "connection_failed",
-                    message: "No se pudo conectar. Credenciales inválidas." 
+                    message: "No se pudo conectar. Credenciales inválidas."
                 });
             }
 
             const events = await appleCalendarService.getTodayEvents();
-            res.json({ 
+            res.json({
                 status: "connected",
                 message: "Calendario conectado correctamente",
                 todayEvents: events.length
             });
         } catch (err: any) {
-            res.json({ 
+            res.json({
                 status: "error",
-                message: err.message 
+                message: err.message
             });
         }
+    });
+    // --- Memory & Context ---
+    app.get("/api/assistants/:id/memory", async (req, res) => {
+        if (!req.session.userId) return res.status(401).send("No autorizado");
+        const memories = await db.select().from(memory)
+            .where(eq(memory.assistantId, req.params.id))
+            .orderBy(desc(memory.importance), desc(memory.lastAccessedAt))
+            .limit(50);
+        res.json(memories);
+    });
+
+    app.get("/api/assistants/:id/tasks", async (req, res) => {
+        if (!req.session.userId) return res.status(401).send("No autorizado");
+        const tasks = await db.select().from(userTasks)
+            .where(eq(userTasks.assistantId, req.params.id))
+            .orderBy(desc(userTasks.priority), desc(userTasks.createdAt));
+        res.json(tasks);
+    });
+
+    app.get("/api/proactive-tasks", async (req, res) => {
+        if (!req.session.userId) return res.status(401).send("No autorizado");
+        const tasks = await db.select().from(proactiveTasks);
+        res.json(tasks);
     });
 }

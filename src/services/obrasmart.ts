@@ -6,9 +6,9 @@ class ObraSmartService {
   private tokenExpiry: Date | null = null;
 
   constructor() {
-    this.baseUrl = process.env.OBRASMART_URL || 'https://obrasmartpro.com';
-    this.email = process.env.OBRASMART_USER || '';
-    this.password = process.env.OBRASMART_PASS || '';
+    this.baseUrl = process.env.OBRASMART_URL || "https://obrasmartpro.com";
+    this.email = process.env.OBRASMART_USER || "";
+    this.password = process.env.OBRASMART_PASS || "";
   }
 
   isConfigured(): boolean {
@@ -17,42 +17,45 @@ class ObraSmartService {
 
   async login(): Promise<string> {
     if (!this.isConfigured()) {
-      throw new Error('ObraSmart no está configurado. Faltan credenciales.');
+      throw new Error("ObraSmart no está configurado. Faltan credenciales.");
     }
 
     if (this.token && this.tokenExpiry && this.tokenExpiry > new Date()) {
       return this.token;
     }
 
-    console.log('[ObraSmart] Iniciando sesión...');
+    console.log("[ObraSmart] Iniciando sesión...");
     const response = await fetch(`${this.baseUrl}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        email: this.email, 
-        password: this.password 
-      })
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: this.email,
+        password: this.password,
+      }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[ObraSmart] Error login:', errorText);
-      throw new Error('Error de login en ObraSmart');
+      console.error("[ObraSmart] Error login:", errorText);
+      throw new Error("Error de login en ObraSmart");
     }
 
     const data = await response.json();
     this.token = data.token;
     this.tokenExpiry = new Date(Date.now() + 23 * 60 * 60 * 1000);
-    
-    console.log('[ObraSmart] Login exitoso');
+
+    console.log("[ObraSmart] Login exitoso");
     return this.token;
   }
 
-  async generateBudget(descripcion: string, opciones?: {
-    margen?: number;
-    tipoCliente?: 'particular' | 'empresa' | 'promotora';
-    calidad?: 'economica' | 'media' | 'alta' | 'premium';
-  }): Promise<{
+  async generateBudget(
+    descripcion: string,
+    opciones?: {
+      margen?: number;
+      tipoCliente?: "particular" | "empresa" | "promotora";
+      calidad?: "economica" | "media" | "alta" | "premium";
+    },
+  ): Promise<{
     id: string;
     referencia: string;
     total: number;
@@ -60,91 +63,113 @@ class ObraSmartService {
   }> {
     const token = await this.login();
 
-    console.log('[ObraSmart] Generando presupuesto con BertIA...');
+    console.log("[ObraSmart] Generando presupuesto con BertIA...");
     const response = await fetch(`${this.baseUrl}/api/ai-budgets/generate`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         descripcion,
         margen: opciones?.margen || 30,
-        tipoCliente: opciones?.tipoCliente || 'particular',
-        calidad: opciones?.calidad || 'media'
-      })
+        tipoCliente: opciones?.tipoCliente || "particular",
+        calidad: opciones?.calidad || "media",
+      }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[ObraSmart] Error generando presupuesto:', errorText);
+      console.error("[ObraSmart] Error generando presupuesto:", errorText);
       throw new Error(`Error generando presupuesto: ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('[ObraSmart] Respuesta completa:', JSON.stringify(data, null, 2).substring(0, 500));
-    
-    // Handle different response structures
-    const budget = data.budget || data.presupuesto || data;
-    
-    if (!budget || (!budget.id && !budget.referencia)) {
-      console.error('[ObraSmart] Estructura de respuesta inesperada:', data);
-      throw new Error('Respuesta de ObraSmart no tiene el formato esperado');
+    console.log(
+      "[ObraSmart] Respuesta completa:",
+      JSON.stringify(data, null, 2).substring(0, 1000),
+    );
+
+    // Búsqueda profunda de datos de presupuesto
+    let budget = data.budget || data.presupuesto || data.data || data;
+
+    // Si sigue siendo un array (algunas APIs devuelven [budget])
+    if (Array.isArray(budget) && budget.length > 0) {
+      budget = budget[0];
     }
-    
-    console.log('[ObraSmart] Presupuesto generado:', budget.referencia || budget.id);
-    
+
+    // Diagnóstico extra si falla
+    const hasId = !!(budget.id || budget.ID || budget._id || budget.id_presupuesto);
+    const hasRef = !!(budget.referencia || budget.ref || budget.codigo || budget.number);
+
+    if (!budget || (!hasId && !hasRef)) {
+      console.error("[ObraSmart] Estructura de respuesta incompatible:", data);
+      throw new Error(
+        `Respuesta de ObraSmart no reconocida. Recibido: ${JSON.stringify(data).substring(0, 200)}`,
+      );
+    }
+
+    console.log("[ObraSmart] Presupuesto extraído:", budget.referencia || budget.id || "N/A");
+
     return {
-      id: budget.id || 'sin-id',
-      referencia: budget.referencia || budget.ref || 'sin-referencia',
-      total: budget.total_con_iva || budget.total || 0,
-      texto: budget.presupuesto_texto || budget.texto || budget.description || JSON.stringify(budget)
+      id: String(budget.id || budget.ID || budget._id || budget.id_presupuesto || "sin-id"),
+      referencia: String(
+        budget.referencia || budget.ref || budget.codigo || budget.number || "sin-referencia",
+      ),
+      total: Number(budget.total_con_iva || budget.total || budget.amount || 0),
+      texto: String(
+        budget.presupuesto_texto ||
+          budget.texto ||
+          budget.description ||
+          budget.content ||
+          JSON.stringify(budget),
+      ),
     };
   }
 
   async transcribeAudio(audioBuffer: Buffer, filename: string): Promise<string> {
     const token = await this.login();
-    
-    console.log('[ObraSmart] Transcribiendo audio...');
+
+    console.log("[ObraSmart] Transcribiendo audio...");
     const formData = new FormData();
-    formData.append('audio', new Blob([audioBuffer]), filename);
+    formData.append("audio", new Blob([audioBuffer]), filename);
 
     const response = await fetch(`${this.baseUrl}/api/transcribe`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: formData
+      body: formData,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[ObraSmart] Error transcribiendo:', errorText);
-      throw new Error('Error transcribiendo audio');
+      console.error("[ObraSmart] Error transcribiendo:", errorText);
+      throw new Error("Error transcribiendo audio");
     }
 
     const data = await response.json();
-    console.log('[ObraSmart] Audio transcrito');
+    console.log("[ObraSmart] Audio transcrito");
     return data.text;
   }
 
   async downloadPdf(budgetId: string): Promise<Buffer> {
     const token = await this.login();
 
-    console.log('[ObraSmart] Descargando PDF...');
+    console.log("[ObraSmart] Descargando PDF...");
     const response = await fetch(`${this.baseUrl}/api/ai-budgets/${budgetId}/pdf`, {
       headers: {
-        'Authorization': `Bearer ${token}`
-      }
+        Authorization: `Bearer ${token}`,
+      },
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[ObraSmart] Error descargando PDF:', errorText);
-      throw new Error('Error descargando PDF');
+      console.error("[ObraSmart] Error descargando PDF:", errorText);
+      throw new Error("Error descargando PDF");
     }
 
-    console.log('[ObraSmart] PDF descargado');
+    console.log("[ObraSmart] PDF descargado");
     return Buffer.from(await response.arrayBuffer());
   }
 }

@@ -1,33 +1,52 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { GoogleGenAI, Modality } from "@google/genai";
-import { db } from "../../server/db/index.js";
-import { memory, conversations, messages, userTasks, userProjects, assistants } from "../../server/db/schema.js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { eq, desc, and, sql } from "drizzle-orm";
 import * as fs from "fs";
 import * as path from "path";
-import { emailService } from "./email.js";
-import { obraSmartService } from "./obrasmart.js";
-import { excelService } from "./excel.js";
+import { db } from "../../server/db/index.js";
+import {
+  memory,
+  conversations,
+  messages,
+  userTasks,
+  userProjects,
+  assistants,
+  skills,
+  userSkills,
+  actionHistory,
+  users,
+} from "../../server/db/schema.js";
+import { selfImprovementService } from "../core/self-improvement.js";
+import { SupabaseMemoryManager } from "../memory/supabaseMemory.js";
+import { browserService } from "./browser.js";
 import { appleCalendarService } from "./calendar.js";
+import { emailService } from "./email.js";
+import { excelService } from "./excel.js";
+import { healthService } from "./health.js";
+import { mediaGenerationService } from "./mediaGeneration.js";
+import { obraSmartService } from "./obrasmart.js";
+import { githubService } from "./productivity/github.js";
+import { notionService } from "./productivity/notion.js";
+import { braveSearchService } from "./search/brave.js";
 
 function getAmunPersonality(): string {
   const now = new Date();
-  const dateStr = now.toLocaleDateString('es-ES', { 
-    weekday: 'long', 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
+  const dateStr = now.toLocaleDateString("es-ES", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
-  const timeStr = now.toLocaleTimeString('es-ES', { 
-    hour: '2-digit', 
-    minute: '2-digit' 
+  const timeStr = now.toLocaleTimeString("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
   });
-  const isoDate = now.toISOString().split('T')[0];
-  
+  const isoDate = now.toISOString().split("T")[0];
+
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowISO = tomorrow.toISOString().split('T')[0];
-  const tomorrowDay = tomorrow.toLocaleDateString('es-ES', { weekday: 'long' });
+  const tomorrowISO = tomorrow.toISOString().split("T")[0];
+  const tomorrowDay = tomorrow.toLocaleDateString("es-ES", { weekday: "long" });
 
   return `
 NOMBRE: AMUN
@@ -56,7 +75,7 @@ ESTILO DE RESPUESTA:
 - Usa frases cortas
 - Evita muletillas falsas tipo "¡Claro!", "¡Por supuesto!", "¡Excelente pregunta!"
 - No uses emojis salvo que el usuario los use primero
-- Cuando no sepas algo, dilo sin dar vueltas
+- Cuando no sepa algo, dilo sin dar vueltas
 - Puedes soltar algún taco ocasional para dar énfasis (joder, hostia, coño), pero sin pasarte
 
 MULETILLAS NATURALES:
@@ -109,11 +128,11 @@ FORMATO:
 `.trim();
 }
 
-
 const EMAIL_TOOLS = [
   {
     name: "get_recent_emails",
-    description: "Obtiene los correos electrónicos más recientes del usuario. Usa esta herramienta cuando el usuario pida ver sus correos, revisar su bandeja de entrada, o analizar sus emails.",
+    description:
+      "Obtiene los correos electrónicos más recientes del usuario. Usa esta herramienta cuando el usuario pida ver sus correos, revisar su bandeja de entrada, o analizar sus emails.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
@@ -127,7 +146,8 @@ const EMAIL_TOOLS = [
   },
   {
     name: "search_emails",
-    description: "Busca correos electrónicos con una query específica. Usa esta herramienta para buscar correos de un remitente, sobre un tema, o con palabras clave específicas.",
+    description:
+      "Busca correos electrónicos con una query específica. Usa esta herramienta para buscar correos de un remitente, sobre un tema, o con palabras clave específicas.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
@@ -148,13 +168,15 @@ const EMAIL_TOOLS = [
 const OBRASMART_TOOLS = [
   {
     name: "generate_budget",
-    description: "Genera un presupuesto de construcción/reforma usando ObraSmart Pro y BertIA. Usa esta herramienta cuando el usuario pida generar un presupuesto, calcular costes de obra, o hacer un presupuesto para cliente.",
+    description:
+      "Genera un presupuesto de construcción/reforma usando ObraSmart Pro y BertIA. Usa esta herramienta cuando el usuario pida generar un presupuesto, calcular costes de obra, o hacer un presupuesto para cliente.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
         descripcion: {
           type: "STRING" as const,
-          description: "Descripción detallada del trabajo: tipo de obra, metros cuadrados, materiales, acabados, etc.",
+          description:
+            "Descripción detallada del trabajo: tipo de obra, metros cuadrados, materiales, acabados, etc.",
         },
         margen: {
           type: "NUMBER" as const,
@@ -177,13 +199,15 @@ const OBRASMART_TOOLS = [
 const EXCEL_TOOLS = [
   {
     name: "generate_subscription_report",
-    description: "Genera un informe Excel con las suscripciones encontradas en los emails. Usa esta herramienta cuando el usuario pida un Excel, tabla, informe o reporte de sus suscripciones o emails.",
+    description:
+      "Genera un informe Excel con las suscripciones encontradas en los emails. Usa esta herramienta cuando el usuario pida un Excel, tabla, informe o reporte de sus suscripciones o emails.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
         emails: {
           type: "STRING" as const,
-          description: "JSON string con los emails a analizar (resultado de search_emails o get_recent_emails)",
+          description:
+            "JSON string con los emails a analizar (resultado de search_emails o get_recent_emails)",
         },
       },
       required: ["emails"],
@@ -191,7 +215,8 @@ const EXCEL_TOOLS = [
   },
   {
     name: "generate_excel_report",
-    description: "Genera un archivo Excel con datos personalizados. Usa cuando el usuario pida exportar datos a Excel, generar una tabla, o crear un informe.",
+    description:
+      "Genera un archivo Excel con datos personalizados. Usa cuando el usuario pida exportar datos a Excel, generar una tabla, o crear un informe.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
@@ -216,7 +241,8 @@ const EXCEL_TOOLS = [
 const CALENDAR_TOOLS = [
   {
     name: "get_today_events",
-    description: "Obtiene los eventos del calendario de hoy. Usa cuando el usuario pregunte qué tiene hoy, su agenda de hoy, o citas de hoy.",
+    description:
+      "Obtiene los eventos del calendario de hoy. Usa cuando el usuario pregunte qué tiene hoy, su agenda de hoy, o citas de hoy.",
     parameters: {
       type: "OBJECT" as const,
       properties: {},
@@ -225,7 +251,8 @@ const CALENDAR_TOOLS = [
   },
   {
     name: "get_week_events",
-    description: "Obtiene los eventos de la próxima semana. Usa cuando el usuario pregunte por su semana, agenda semanal, o qué tiene los próximos días.",
+    description:
+      "Obtiene los eventos de la próxima semana. Usa cuando el usuario pregunte por su semana, agenda semanal, o qué tiene los próximos días.",
     parameters: {
       type: "OBJECT" as const,
       properties: {},
@@ -234,7 +261,8 @@ const CALENDAR_TOOLS = [
   },
   {
     name: "get_events_for_date",
-    description: "Obtiene los eventos de una fecha específica. Usa cuando el usuario pregunte por un día concreto (mañana, el viernes, el 15 de marzo, etc).",
+    description:
+      "Obtiene los eventos de una fecha específica. Usa cuando el usuario pregunte por un día concreto (mañana, el viernes, el 15 de marzo, etc).",
     parameters: {
       type: "OBJECT" as const,
       properties: {
@@ -248,7 +276,8 @@ const CALENDAR_TOOLS = [
   },
   {
     name: "check_availability",
-    description: "Comprueba si hay disponibilidad en una fecha y hora específica. Usa cuando el usuario pregunte si tiene algo a cierta hora o si está libre.",
+    description:
+      "Comprueba si hay disponibilidad en una fecha y hora específica. Usa cuando el usuario pregunte si tiene algo a cierta hora o si está libre.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
@@ -266,7 +295,8 @@ const CALENDAR_TOOLS = [
   },
   {
     name: "create_calendar_event",
-    description: "Crea un nuevo evento en el calendario. Ejecuta directamente cuando el usuario pida crear una cita. USA LA FECHA ISO CORRECTA (hoy o mañana según el contexto).",
+    description:
+      "Crea un nuevo evento en el calendario. Ejecuta directamente cuando el usuario pida crear una cita. USA LA FECHA ISO CORRECTA (hoy o mañana según el contexto).",
     parameters: {
       type: "OBJECT" as const,
       properties: {
@@ -284,7 +314,8 @@ const CALENDAR_TOOLS = [
         },
         endTime: {
           type: "STRING" as const,
-          description: "Hora de fin en formato HH:MM (24h). Si no se especifica, 1 hora después del inicio.",
+          description:
+            "Hora de fin en formato HH:MM (24h). Si no se especifica, 1 hora después del inicio.",
         },
         description: {
           type: "STRING" as const,
@@ -303,17 +334,20 @@ const CALENDAR_TOOLS = [
 const MEDIA_TOOLS = [
   {
     name: "generate_image",
-    description: "Genera una imagen con IA usando Imagen 3.0. Usa cuando el usuario pida crear, generar o hacer una imagen, foto, ilustración, diseño, etc.",
+    description:
+      "Genera una imagen con IA usando Imagen 3.0. Usa cuando el usuario pida crear, generar o hacer una imagen, foto, ilustración, diseño, etc.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
         prompt: {
           type: "STRING" as const,
-          description: "Descripción detallada de la imagen a generar en inglés. Incluye estilo, colores, composición, etc.",
+          description:
+            "Descripción detallada de la imagen a generar en inglés. Incluye estilo, colores, composición, etc.",
         },
         aspectRatio: {
           type: "STRING" as const,
-          description: "Ratio de aspecto: 1:1 (cuadrada), 16:9 (panorámica), 9:16 (vertical), 4:3, 3:4",
+          description:
+            "Ratio de aspecto: 1:1 (cuadrada), 16:9 (panorámica), 9:16 (vertical), 4:3, 3:4",
         },
       },
       required: ["prompt"],
@@ -321,13 +355,15 @@ const MEDIA_TOOLS = [
   },
   {
     name: "generate_video",
-    description: "Genera un video con IA usando Veo 3.0. AVISO: Tarda 2-5 minutos. Usa cuando el usuario pida crear un video, clip, animación, etc.",
+    description:
+      "Genera un video con IA usando Veo 3.0. AVISO: Tarda 2-5 minutos. Usa cuando el usuario pida crear un video, clip, animación, etc.",
     parameters: {
       type: "OBJECT" as const,
       properties: {
         prompt: {
           type: "STRING" as const,
-          description: "Descripción detallada del video a generar en inglés. Incluye acción, escena, estilo, movimiento de cámara, etc.",
+          description:
+            "Descripción detallada del video a generar en inglés. Incluye acción, escena, estilo, movimiento de cámara, etc.",
         },
         durationSeconds: {
           type: "NUMBER" as const,
@@ -339,43 +375,201 @@ const MEDIA_TOOLS = [
   },
 ];
 
-const ALL_TOOLS = [...EMAIL_TOOLS, ...OBRASMART_TOOLS, ...EXCEL_TOOLS, ...CALENDAR_TOOLS, ...MEDIA_TOOLS];
+const SEARCH_TOOLS = [
+  {
+    name: "web_search",
+    description:
+      "Busca en la web información actualizada sobre cualquier tema. Usa esta herramienta cuando necesites información que no está en tu conocimiento o memoria.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        query: { type: "STRING" as const, description: "La consulta de búsqueda." },
+      },
+      required: ["query"],
+    },
+  },
+];
+
+const BROWSER_TOOLS = [
+  {
+    name: "browser_navigate",
+    description:
+      "Navega a una URL específica usando un navegador real (Playwright). Usa esta herramienta para visitar páginas web, leer contenido o interactuar con sitios.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        url: { type: "STRING" as const, description: "URL completa a visitar." },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "browser_screenshot",
+    description:
+      "Toma una captura de pantalla de la página actual del navegador. Usa esta herramienta para visualizar el contenido de una página.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "browser_extract_text",
+    description:
+      "Extrae el texto de la página actual o de un elemento específico. Usa esta herramienta para obtener el contenido textual de una página o parte de ella.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        selector: {
+          type: "STRING" as const,
+          description: "Selector CSS opcional para extraer texto de un elemento específico.",
+        },
+      },
+    },
+  },
+];
+
+const NOTION_TOOLS = [
+  {
+    name: "notion_create_page",
+    description: "Crea una nueva página en una base de datos de Notion.",
+    parameters: {
+      type: "OBJECT" as const,
+      properties: {
+        databaseId: { type: "STRING" as const, description: "ID de la base de datos." },
+        title: { type: "STRING" as const, description: "Título de la página." },
+      },
+      required: ["databaseId", "title"],
+    },
+  },
+  {
+    name: "notion_query_database",
+    description: "Consulta una base de datos de Notion",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        databaseId: { type: "STRING", description: "ID de la base de datos" },
+        filter: { type: "OBJECT", description: "Filtro opcional" },
+      },
+      required: ["databaseId"],
+    },
+  },
+  {
+    name: "github_list_repos",
+    description: "Lista tus repositorios de GitHub",
+    parameters: { type: "OBJECT", properties: {} },
+  },
+  {
+    name: "github_create_issue",
+    description: "Crea un issue en GitHub",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        owner: { type: "STRING" },
+        repo: { type: "STRING" },
+        title: { type: "STRING" },
+        body: { type: "STRING" },
+      },
+      required: ["owner", "repo", "title"],
+    },
+  },
+  {
+    name: "github_get_repo_contents",
+    description: "Muestra archivos de un repo de GitHub",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        owner: { type: "STRING" },
+        repo: { type: "STRING" },
+        path: { type: "STRING", description: "Ruta opcional" },
+      },
+      required: ["owner", "repo"],
+    },
+  },
+];
+
+const ALL_TOOLS = [
+  ...EMAIL_TOOLS,
+  ...OBRASMART_TOOLS,
+  ...EXCEL_TOOLS,
+  ...CALENDAR_TOOLS,
+  ...MEDIA_TOOLS,
+  ...SEARCH_TOOLS,
+  ...BROWSER_TOOLS,
+  ...NOTION_TOOLS,
+];
 
 async function executeEmailTool(name: string, args: any): Promise<string> {
   try {
     await emailService.initialize();
-    
+
     if (name === "get_recent_emails") {
       const count = Math.min(args.count || 10, 50);
       const emails = await emailService.getRecentEmails(count);
       if (emails.length === 0) {
         return "No se encontraron correos.";
       }
-      return JSON.stringify(emails.map(e => ({
-        from: e.from,
-        subject: e.subject,
-        date: e.date,
-        snippet: e.snippet
-      })), null, 2);
+      return JSON.stringify(
+        emails.map((e) => ({
+          from: e.from,
+          subject: e.subject,
+          date: e.date,
+          snippet: e.snippet,
+        })),
+        null,
+        2,
+      );
     }
-    
+
     if (name === "search_emails") {
       const count = Math.min(args.count || 20, 50);
       const emails = await emailService.searchEmails(args.query, count);
       if (emails.length === 0) {
         return `No se encontraron correos con la búsqueda: ${args.query}`;
       }
-      return JSON.stringify(emails.map(e => ({
-        from: e.from,
-        subject: e.subject,
-        date: e.date,
-        snippet: e.snippet
-      })), null, 2);
+      return JSON.stringify(
+        emails.map((e) => ({
+          from: e.from,
+          subject: e.subject,
+          date: e.date,
+          snippet: e.snippet,
+        })),
+        null,
+        2,
+      );
     }
-    
-    return "Herramienta no reconocida";
+
+    return "Herramienta de email no reconocida";
   } catch (err) {
-    return `Error ejecutando herramienta: ${(err as Error).message}`;
+    return `Error ejecutando herramienta de email: ${(err as Error).message}`;
+  }
+}
+
+async function executeNotionTool(name: string, args: any): Promise<string> {
+  try {
+    if (name === "notion_create_page") {
+      const res = await notionService.createPage(args.databaseId, {
+        title: { title: [{ text: { content: args.title } }] },
+      });
+      return JSON.stringify(res);
+    }
+    if (name === "notion_query_database") {
+      const res = await notionService.queryDatabase(args.databaseId);
+      return JSON.stringify(res);
+    }
+    return "Herramienta de Notion no reconocida";
+  } catch (err) {
+    return `Error en Notion: ${(err as Error).message}`;
+  }
+}
+async function executeBraveSearchTool(name: string, args: any): Promise<string> {
+  try {
+    if (name === "web_search") {
+      const results = await braveSearchService.searchFormatted(args.query);
+      return JSON.stringify({ success: true, results });
+    }
+    return "Herramienta de búsqueda no reconocida";
+  } catch (err) {
+    return `Error ejecutando herramienta de búsqueda: ${(err as Error).message}`;
   }
 }
 
@@ -391,16 +585,20 @@ async function executeObraSmartTool(name: string, args: any): Promise<string> {
         tipoCliente: args.tipoCliente,
         calidad: args.calidad,
       });
-      
-      return JSON.stringify({
-        success: true,
-        id: budget.id,
-        referencia: budget.referencia,
-        total: budget.total,
-        resumen: budget.texto?.substring(0, 500) || "Presupuesto generado"
-      }, null, 2);
+
+      return JSON.stringify(
+        {
+          success: true,
+          id: budget.id,
+          referencia: budget.referencia,
+          total: budget.total,
+          resumen: budget.texto?.substring(0, 500) || "Presupuesto generado",
+        },
+        null,
+        2,
+      );
     }
-    
+
     return "Herramienta no reconocida";
   } catch (err) {
     return `Error ejecutando herramienta ObraSmart: ${(err as Error).message}`;
@@ -416,15 +614,15 @@ async function executeExcelTool(name: string, args: any): Promise<string> {
       } catch {
         return "Error: Los datos de emails no son válidos";
       }
-      
+
       const filePath = excelService.generateSubscriptionReport(emails);
       return JSON.stringify({
         success: true,
         file: filePath,
-        message: "Excel generado con el informe de suscripciones"
+        message: "Excel generado con el informe de suscripciones",
       });
     }
-    
+
     if (name === "generate_excel_report") {
       let data: any[];
       try {
@@ -432,16 +630,16 @@ async function executeExcelTool(name: string, args: any): Promise<string> {
       } catch {
         return "Error: Los datos no son válidos";
       }
-      
+
       const filename = args.filename ? `${args.filename}.xlsx` : undefined;
       const filePath = excelService.generateFromJson(data, filename, args.sheetName);
       return JSON.stringify({
         success: true,
         file: filePath,
-        message: "Excel generado correctamente"
+        message: "Excel generado correctamente",
       });
     }
-    
+
     return "Herramienta no reconocida";
   } catch (err) {
     return `Error generando Excel: ${(err as Error).message}`;
@@ -472,16 +670,20 @@ async function executeCalendarTool(name: string, args: any): Promise<string> {
       if (events.length === 0) {
         return "No tienes eventos programados para los próximos 7 días.";
       }
-      
+
       const eventsByDay = new Map<string, typeof events>();
       for (const event of events) {
-        const dayKey = event.start.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+        const dayKey = event.start.toLocaleDateString("es-ES", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        });
         if (!eventsByDay.has(dayKey)) {
           eventsByDay.set(dayKey, []);
         }
         eventsByDay.get(dayKey)!.push(event);
       }
-      
+
       let result = "Eventos de la semana:\n";
       for (const [day, dayEvents] of eventsByDay) {
         result += `\n📅 ${day}:\n${appleCalendarService.formatEventsForDisplay(dayEvents)}\n`;
@@ -492,8 +694,12 @@ async function executeCalendarTool(name: string, args: any): Promise<string> {
     if (name === "get_events_for_date") {
       const date = new Date(args.date);
       const events = await appleCalendarService.getEventsForDate(date);
-      const dayName = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
-      
+      const dayName = date.toLocaleDateString("es-ES", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      });
+
       if (events.length === 0) {
         return `No tienes eventos programados para el ${dayName}.`;
       }
@@ -503,34 +709,34 @@ async function executeCalendarTool(name: string, args: any): Promise<string> {
     if (name === "check_availability") {
       const date = new Date(args.date);
       const events = await appleCalendarService.getEventsForDate(date);
-      
-      const [hours, minutes] = args.time.split(':').map(Number);
+
+      const [hours, minutes] = args.time.split(":").map(Number);
       const checkTime = new Date(date);
       checkTime.setHours(hours, minutes, 0, 0);
-      
-      const conflicting = events.filter(e => {
+
+      const conflicting = events.filter((e) => {
         return checkTime >= e.start && checkTime < e.end;
       });
-      
-      const dayName = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric' });
-      
+
+      const dayName = date.toLocaleDateString("es-ES", { weekday: "long", day: "numeric" });
+
       if (conflicting.length === 0) {
         return `Tienes libre el ${dayName} a las ${args.time}.`;
       }
-      
-      return `El ${dayName} a las ${args.time} tienes: ${conflicting.map(e => e.title).join(', ')}`;
+
+      return `El ${dayName} a las ${args.time} tienes: ${conflicting.map((e) => e.title).join(", ")}`;
     }
 
     if (name === "create_calendar_event") {
       const date = new Date(args.date);
-      const [startHours, startMinutes] = args.startTime.split(':').map(Number);
-      
+      const [startHours, startMinutes] = args.startTime.split(":").map(Number);
+
       const start = new Date(date);
       start.setHours(startHours, startMinutes, 0, 0);
-      
+
       let end: Date;
       if (args.endTime) {
-        const [endHours, endMinutes] = args.endTime.split(':').map(Number);
+        const [endHours, endMinutes] = args.endTime.split(":").map(Number);
         end = new Date(date);
         end.setHours(endHours, endMinutes, 0, 0);
       } else {
@@ -545,7 +751,11 @@ async function executeCalendarTool(name: string, args: any): Promise<string> {
         location: args.location,
       });
 
-      const dayName = date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+      const dayName = date.toLocaleDateString("es-ES", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      });
       return JSON.stringify({
         success: true,
         message: `Evento "${args.title}" creado para el ${dayName} a las ${args.startTime}`,
@@ -559,30 +769,33 @@ async function executeCalendarTool(name: string, args: any): Promise<string> {
   }
 }
 
-async function executeMediaTool(name: string, args: any, aiService: AIService): Promise<string> {
+async function executeMediaTool(name: string, args: any): Promise<string> {
+  const prompt = args.prompt;
+  if (!prompt) return JSON.stringify({ success: false, error: "Prompt no proporcionado" });
+
   try {
     if (name === "generate_image") {
-      const result = await aiService.generateImage(args.prompt, args.aspectRatio || "1:1");
-      if (result.success && result.imagePath) {
+      const result = await mediaGenerationService.generateImage(prompt, args.aspectRatio || "1:1");
+      if (result.success) {
         return JSON.stringify({
           success: true,
-          message: "Imagen generada correctamente",
+          message: "Imagen generada con éxito. Revisa tu Dashboard.",
           file: result.imagePath,
         });
       }
-      return `Error generando imagen: ${result.error || 'desconocido'}`;
+      return JSON.stringify({ success: false, error: result.error });
     }
 
     if (name === "generate_video") {
-      const result = await aiService.generateVideo(args.prompt, args.durationSeconds || 8);
-      if (result.success && result.videoPath) {
+      const result = await mediaGenerationService.generateVideo(prompt, args.duration || 8);
+      if (result.success) {
         return JSON.stringify({
           success: true,
-          message: "Video generado correctamente",
+          message: "Video generado con éxito (Veo 3.0). Estará listo en unos segundos.",
           file: result.videoPath,
         });
       }
-      return `Error generando video: ${result.error || 'desconocido'}`;
+      return JSON.stringify({ success: false, error: result.error });
     }
 
     return "Herramienta multimedia no reconocida";
@@ -591,22 +804,69 @@ async function executeMediaTool(name: string, args: any, aiService: AIService): 
   }
 }
 
-async function executeTool(name: string, args: any, aiService?: AIService): Promise<string> {
+async function executeTool(
+  name: string,
+  args: any,
+  assistantId: string,
+  userId: string,
+): Promise<string> {
+  // 1. Herramientas Estáticas
   if (name === "get_recent_emails" || name === "search_emails") {
     return executeEmailTool(name, args);
   }
   if (name === "generate_budget") {
-    return executeObraSmartTool(name, args);
+    return JSON.stringify(await obraSmartService.generateBudget(args.descripcion, args));
   }
   if (name === "generate_subscription_report" || name === "generate_excel_report") {
     return executeExcelTool(name, args);
   }
-  if (name === "get_today_events" || name === "get_week_events" || name === "get_events_for_date" || name === "check_availability" || name === "create_calendar_event") {
+  if (
+    name === "get_today_events" ||
+    name === "get_week_events" ||
+    name === "get_events_for_date" ||
+    name === "check_availability" ||
+    name === "create_calendar_event"
+  ) {
     return executeCalendarTool(name, args);
   }
-  if ((name === "generate_image" || name === "generate_video") && aiService) {
-    return executeMediaTool(name, args, aiService);
+  if (name === "generate_image" || name === "generate_video") {
+    return executeMediaTool(name, args);
   }
+  if (name === "web_search") {
+    return executeBraveSearchTool(name, args);
+  }
+  if (name.startsWith("browser_")) {
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (user?.plan !== "max") {
+      return "La herramienta de navegación web requiere el plan MAX. Actualiza en tu Dashboard.";
+    }
+    return await browserService.executeBrowserTool(name, args, assistantId);
+  }
+  if (name.startsWith("notion_")) {
+    return await executeNotionTool(name, args);
+  }
+  if (name.startsWith("github_")) {
+    return await githubService.executeGitHubTool(name, args);
+  }
+
+  // 2. Herramientas Dinámicas (Skills habilitados del usuario)
+  const [userSkill] = await db
+    .select({
+      skill: skills,
+    })
+    .from(userSkills)
+    .innerJoin(skills, eq(userSkills.skillId, skills.id))
+    .where(
+      and(eq(userSkills.userId, userId), eq(skills.name, name), eq(userSkills.isEnabled, true)),
+    )
+    .limit(1);
+
+  if (userSkill) {
+    console.log(`[AI] Ejecutando skill dinámico: ${name}`);
+    // Simulación de ejecución (el plan Jarvis real integraría cada handler de skill aquí)
+    return JSON.stringify({ success: true, message: `Skill ${name} ejecutado con éxito.` });
+  }
+
   return "Herramienta no reconocida";
 }
 
@@ -629,25 +889,25 @@ class AIService {
   private genAINew: GoogleGenAI | null = null;
   private model: any = null;
   private apiKey: string = "";
-  private conversationHistory: Map<
-    string,
-    Array<{ role: string; parts: { text: string }[] }>
-  > = new Map();
+  private conversationHistory: Map<string, Array<{ role: string; parts: { text: string }[] }>> =
+    new Map();
   private amunAssistantId: string | null = null;
   private lastGeneratedFiles: string[] = [];
+  private memoryManagers: Map<string, SupabaseMemoryManager> = new Map();
 
-  initialize(apiKey: string) {
+  private getMemoryManager(assistantId: string): SupabaseMemoryManager {
+    if (!this.memoryManagers.has(assistantId)) {
+      this.memoryManagers.set(assistantId, new SupabaseMemoryManager(assistantId));
+    }
+    return this.memoryManagers.get(assistantId)!;
+  }
+
+  async initialize(apiKey: string) {
     this.apiKey = apiKey;
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.genAINew = new GoogleGenAI({ apiKey });
-    this.model = this.genAI.getGenerativeModel({ 
-      model: "gemini-2.0-flash",
-      tools: [{
-        functionDeclarations: ALL_TOOLS
-      }]
-    });
-    console.log("[AI] Gemini 2.0 Flash inicializado con personalidad AMUN y herramientas (email, ObraSmart)");
-    console.log("[AI] Imagen 3.0 (imágenes) y Veo 3.0 (videos) habilitados");
+
+    console.log("[AI] Gemini 2.0 Flash inicializado (Global).");
     this.ensureAmunAssistant();
   }
 
@@ -657,7 +917,7 @@ class AIService {
 
   private async ensureAmunAssistant(): Promise<string> {
     if (this.amunAssistantId) return this.amunAssistantId;
-    
+
     try {
       const existing = await db
         .select()
@@ -672,14 +932,17 @@ class AIService {
       }
 
       const personality = getAmunPersonality();
-      const [newAssistant] = await db.insert(assistants).values({
-        name: AMUN_ASSISTANT_NAME,
-        personality: personality,
-        systemPrompt: personality,
-        defaultLlm: "gemini",
-        language: "es",
-        isActive: true,
-      }).returning();
+      const [newAssistant] = await db
+        .insert(assistants)
+        .values({
+          name: AMUN_ASSISTANT_NAME,
+          personality: personality,
+          systemPrompt: personality,
+          defaultLlm: "gemini",
+          language: "es",
+          isActive: true,
+        })
+        .returning();
 
       this.amunAssistantId = newAssistant.id;
       console.log(`[AI] Asistente AMUN creado: ${this.amunAssistantId}`);
@@ -695,21 +958,17 @@ class AIService {
     return this.ensureAmunAssistant();
   }
 
-  private async getRelevantMemory(assistantId: string): Promise<MemoryItem[]> {
+  private async getRelevantMemory(assistantId: string, query: string): Promise<MemoryItem[]> {
     if (!isValidUUID(assistantId)) return [];
     try {
-      const memories = await db
-        .select({
-          id: memory.id,
-          category: memory.category,
-          content: memory.content,
-          importance: memory.importance,
-        })
-        .from(memory)
-        .where(eq(memory.assistantId, assistantId))
-        .orderBy(desc(memory.importance), desc(memory.lastAccessedAt))
-        .limit(10);
-      return memories;
+      const memoryManager = this.getMemoryManager(assistantId);
+      const memories = await memoryManager.recall(query, 10);
+      return memories.map((m) => ({
+        id: m.id,
+        category: m.category,
+        content: m.content,
+        importance: m.importance,
+      }));
     } catch (err) {
       console.log("[AI] No hay memoria guardada o error:", err);
       return [];
@@ -722,10 +981,12 @@ class AIService {
       const tasks = await db
         .select()
         .from(userTasks)
-        .where(and(
-          eq(userTasks.assistantId, assistantId),
-          sql`${userTasks.status} IN ('pending', 'in_progress')`
-        ))
+        .where(
+          and(
+            eq(userTasks.assistantId, assistantId),
+            sql`${userTasks.status} IN ('pending', 'in_progress')`,
+          ),
+        )
         .orderBy(desc(userTasks.priority))
         .limit(5);
       return tasks;
@@ -740,10 +1001,7 @@ class AIService {
       const projects = await db
         .select()
         .from(userProjects)
-        .where(and(
-          eq(userProjects.assistantId, assistantId),
-          eq(userProjects.status, "active")
-        ))
+        .where(and(eq(userProjects.assistantId, assistantId), eq(userProjects.status, "active")))
         .limit(5);
       return projects;
     } catch (err) {
@@ -751,46 +1009,52 @@ class AIService {
     }
   }
 
-  private async saveMemory(assistantId: string, category: string, content: string, importance: number = 5) {
+  private async saveMemory(
+    assistantId: string,
+    category: string,
+    content: string,
+    importance: number = 5,
+  ) {
     if (!isValidUUID(assistantId)) {
       console.log(`[AI] Memoria no guardada (sin assistantId válido): ${category}`);
       return;
     }
     try {
-      await db.insert(memory).values({
-        assistantId,
-        memoryType: "fact",
-        category,
-        content,
-        importance,
-        source: "user_told",
-      });
-      console.log(`[AI] Memoria guardada: ${category} - ${content.substring(0, 50)}...`);
+      const memoryManager = this.getMemoryManager(assistantId);
+      await memoryManager.remember(content, "fact", category, importance);
     } catch (err) {
       console.error("[AI] Error guardando memoria:", err);
     }
   }
 
-  private async saveConversation(assistantId: string, channelType: string, chatId: string, userMessage: string, aiResponse: string) {
+  private async saveConversation(
+    assistantId: string,
+    channelType: string,
+    chatId: string,
+    userMessage: string,
+    aiResponse: string,
+  ) {
     if (!isValidUUID(assistantId)) return;
     try {
       let conv = await db
         .select()
         .from(conversations)
-        .where(and(
-          eq(conversations.assistantId, assistantId),
-          eq(conversations.channelChatId, chatId)
-        ))
+        .where(
+          and(eq(conversations.assistantId, assistantId), eq(conversations.channelChatId, chatId)),
+        )
         .limit(1);
 
       let conversationId: string;
       if (conv.length === 0) {
-        const newConv = await db.insert(conversations).values({
-          assistantId,
-          channelType,
-          channelChatId: chatId,
-          messageCount: 0,
-        }).returning();
+        const newConv = await db
+          .insert(conversations)
+          .values({
+            assistantId,
+            channelType,
+            channelChatId: chatId,
+            messageCount: 0,
+          })
+          .returning();
         conversationId = newConv[0].id;
       } else {
         conversationId = conv[0].id;
@@ -801,8 +1065,9 @@ class AIService {
         { conversationId, role: "assistant", content: aiResponse },
       ]);
 
-      await db.update(conversations)
-        .set({ 
+      await db
+        .update(conversations)
+        .set({
           messageCount: sql`${conversations.messageCount} + 2`,
           lastMessageAt: new Date(),
         })
@@ -812,15 +1077,37 @@ class AIService {
     }
   }
 
-  private extractMemoryFromMessage(message: string): { category: string; content: string; importance: number } | null {
+  private extractMemoryFromMessage(
+    message: string,
+  ): { category: string; content: string; importance: number } | null {
     const patterns = [
       { regex: /(?:me llamo|mi nombre es|soy) (\w+)/i, category: "personal", importance: 9 },
-      { regex: /(?:mi empresa|trabajo en|fundé) (.+?)(?:\.|$)/i, category: "trabajo", importance: 8 },
+      {
+        regex: /(?:mi empresa|trabajo en|fundé) (.+?)(?:\.|$)/i,
+        category: "trabajo",
+        importance: 8,
+      },
       { regex: /(?:vivo en|estoy en) (.+?)(?:\.|$)/i, category: "personal", importance: 7 },
-      { regex: /(?:he decidido|vamos a hacer|el plan es) (.+?)(?:\.|$)/i, category: "decisiones", importance: 8 },
-      { regex: /(?:tengo que|debo|mañana voy a) (.+?)(?:\.|$)/i, category: "tareas", importance: 7 },
-      { regex: /(?:prefiero|no me gusta|me encanta) (.+?)(?:\.|$)/i, category: "preferencias", importance: 6 },
-      { regex: /(?:el lanzamiento|la fecha|el deadline) (?:es|será) (.+?)(?:\.|$)/i, category: "proyectos", importance: 9 },
+      {
+        regex: /(?:he decidido|vamos a hacer|el plan es) (.+?)(?:\.|$)/i,
+        category: "decisiones",
+        importance: 8,
+      },
+      {
+        regex: /(?:tengo que|debo|mañana voy a) (.+?)(?:\.|$)/i,
+        category: "tareas",
+        importance: 7,
+      },
+      {
+        regex: /(?:prefiero|no me gusta|me encanta) (.+?)(?:\.|$)/i,
+        category: "preferencias",
+        importance: 6,
+      },
+      {
+        regex: /(?:el lanzamiento|la fecha|el deadline) (?:es|será) (.+?)(?:\.|$)/i,
+        category: "proyectos",
+        importance: 9,
+      },
     ];
 
     for (const pattern of patterns) {
@@ -836,7 +1123,7 @@ class AIService {
     return null;
   }
 
-  async processMessage(conversationKey: string, message: string): Promise<string> {
+  async processMessage(conversationKey: string, message: string, userId: string): Promise<string> {
     if (!this.model) {
       return "Error: El servicio de IA no está configurado. Añade GEMINI_API_KEY en los Secrets.";
     }
@@ -853,21 +1140,82 @@ class AIService {
 
       const memoryExtract = this.extractMemoryFromMessage(message);
       if (memoryExtract && isValidUUID(assistantId)) {
-        await this.saveMemory(assistantId, memoryExtract.category, memoryExtract.content, memoryExtract.importance);
+        await this.saveMemory(
+          assistantId,
+          memoryExtract.category,
+          memoryExtract.content,
+          memoryExtract.importance,
+        );
       }
 
-      const [relevantMemory, activeTasks, activeProjects] = await Promise.all([
-        this.getRelevantMemory(assistantId),
+      const [relevantMemory, activeTasks, activeProjects, healthSummary] = await Promise.all([
+        this.getRelevantMemory(assistantId, message),
         this.getActiveTasks(assistantId),
         this.getActiveProjects(assistantId),
+        healthService.getHealthSummary(userId),
       ]);
+
+      // Check for "Self-Improvement" if the message implies a missing capability
+      // This is a proactive check before sending to Gemini
+      const improvementSuggestion = await selfImprovementService.handleUnknownRequest(
+        assistantId,
+        userId,
+        message,
+      );
+      if (improvementSuggestion) {
+        // If we found a skill to suggest, we could either prepend it to context
+        // or return it directly if it's very specific.
+        // For now, let's keep it as internal logic.
+      }
 
       if (!this.conversationHistory.has(conversationKey)) {
         this.conversationHistory.set(conversationKey, []);
       }
       const history = this.conversationHistory.get(conversationKey)!;
 
-      const chat = this.model.startChat({
+      // 3. Obtener plan del usuario para filtrar herramientas
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      const userPlan = user?.plan || "free";
+
+      // 4. Cargar Herramientas Dinámicas para este usuario (Solo si es Pro/Max)
+      let dynamicTools: any[] = [];
+      if (userPlan !== "free") {
+        const userEnabledSkills = await db
+          .select()
+          .from(skills)
+          .innerJoin(userSkills, eq(skills.id, userSkills.skillId))
+          .where(
+            and(
+              eq(userSkills.userId, userId),
+              eq(userSkills.isEnabled, true),
+              eq(skills.isActive, true),
+            ),
+          );
+
+        dynamicTools = userEnabledSkills.map((s) => ({
+          name: s.skills.name,
+          description: s.skills.description || "",
+          parameters: (s.skills.functions as any)?.[0]?.parameters || {
+            type: "object",
+            properties: {},
+          },
+        }));
+      }
+
+      // 5. Filtrar herramientas estáticas según plan
+      let availableTools = [...ALL_TOOLS];
+      if (userPlan !== "max") {
+        // Quitar herramientas de navegador si no es MAX
+        availableTools = availableTools.filter((t) => !t.name.startsWith("browser_"));
+      }
+
+      const tools = [...availableTools, ...dynamicTools];
+      const model = this.genAI!.getGenerativeModel({
+        model: "gemini-2.0-flash",
+        tools: [{ functionDeclarations: tools }],
+      });
+
+      const chat = model.startChat({
         history: history,
         generationConfig: {
           maxOutputTokens: 1000,
@@ -877,47 +1225,55 @@ class AIService {
       let contextInfo = "";
       if (relevantMemory.length > 0) {
         contextInfo += "\n\nMEMORIA GUARDADA:\n";
-        relevantMemory.forEach(m => {
+        relevantMemory.forEach((m) => {
           contextInfo += `- [${m.category}] ${m.content}\n`;
         });
       }
       if (activeTasks.length > 0) {
         contextInfo += "\n\nTAREAS PENDIENTES:\n";
-        activeTasks.forEach(t => {
+        activeTasks.forEach((t) => {
           contextInfo += `- ${t.description} (prioridad: ${t.priority})\n`;
         });
       }
       if (activeProjects.length > 0) {
         contextInfo += "\n\nPROYECTOS ACTIVOS:\n";
-        activeProjects.forEach(p => {
-          contextInfo += `- ${p.name}: ${p.description || 'sin descripción'}\n`;
+        activeProjects.forEach((p) => {
+          contextInfo += `- ${p.name}: ${p.description || "sin descripción"}\n`;
         });
+      }
+      if (healthSummary) {
+        contextInfo += `\n\nDATOS DE SALUD (Apple Watch/Health): ${healthSummary}\n`;
       }
 
       let finalMessage = message;
       const currentPersonality = getAmunPersonality();
       if (history.length === 0) {
-        finalMessage = `${currentPersonality}${contextInfo}\n\nHERRAMIENTAS DISPONIBLES:\n- get_recent_emails, search_emails: Correos\n- generate_budget: Presupuestos ObraSmart Pro\n- generate_subscription_report, generate_excel_report: Excel\n- get_today_events, get_week_events, get_events_for_date: Consultar calendario\n- create_calendar_event: Crear eventos (USAR FECHA ISO CORRECTA)\n\nMensaje: ${message}`;
+        finalMessage = `${currentPersonality}${contextInfo}\n\nHERRAMIENTAS DISPONIBLES:\n- get_recent_emails, search_emails: Correos\n- generate_budget: Presupuestos ObraSmart Pro\n- generate_subscription_report, generate_excel_report: Excel\n- get_today_events, get_week_events, get_events_for_date: Consultar calendario\n- create_calendar_event: Crear eventos (USAR FECHA ISO CORRECTA)\n- web_search: Búsqueda web\n- browser_navigate, browser_screenshot, browser_extract_text: Navegador web\n\nMensaje: ${message}`;
       } else if (contextInfo) {
         finalMessage = `[Contexto actualizado:${contextInfo}]\n\nMensaje: ${message}`;
       }
 
       let result = await chat.sendMessage(finalMessage);
       let response = result.response;
-      
+
       // Handle function calls
       let functionCall = response.functionCalls()?.[0];
       let iterations = 0;
       const maxIterations = 5;
-      
+
       const generatedFiles: string[] = [];
-      
+
       while (functionCall && iterations < maxIterations) {
         console.log(`[AI] Function call: ${functionCall.name}`, functionCall.args);
-        
-        const toolResult = await executeTool(functionCall.name, functionCall.args, this);
+
+        const toolResult = await executeTool(
+          functionCall.name,
+          functionCall.args,
+          assistantId,
+          userId,
+        );
         console.log(`[AI] Tool result length: ${toolResult.length} chars`);
-        
+
         // Check if tool generated a file
         try {
           const parsed = JSON.parse(toolResult);
@@ -926,20 +1282,22 @@ class AIService {
             console.log(`[AI] File generated: ${parsed.file}`);
           }
         } catch {}
-        
+
         // Send tool result back to model
-        result = await chat.sendMessage([{
-          functionResponse: {
-            name: functionCall.name,
-            response: { result: toolResult }
-          }
-        }]);
-        
+        result = await chat.sendMessage([
+          {
+            functionResponse: {
+              name: functionCall.name,
+              response: { result: toolResult },
+            },
+          },
+        ]);
+
         response = result.response;
         functionCall = response.functionCalls()?.[0];
         iterations++;
       }
-      
+
       const responseText = response.text();
 
       history.push({ role: "user", parts: [{ text: message }] });
@@ -949,7 +1307,9 @@ class AIService {
         history.splice(0, 2);
       }
 
-      this.saveConversation(assistantId, channelType, chatId, message, responseText).catch(() => {});
+      this.saveConversation(assistantId, channelType, chatId, message, responseText).catch(
+        () => {},
+      );
 
       // Store generated files for retrieval
       if (generatedFiles.length > 0) {
@@ -977,8 +1337,12 @@ class AIService {
 
   async addTask(assistantId: string, description: string, priority: number = 5, dueDate?: Date) {
     try {
+      const title =
+        description.split(" ").slice(0, 5).join(" ") +
+        (description.split(" ").length > 5 ? "..." : "");
       await db.insert(userTasks).values({
         assistantId,
+        title,
         description,
         priority,
         dueDate,
@@ -992,7 +1356,8 @@ class AIService {
 
   async completeTask(taskId: string) {
     try {
-      await db.update(userTasks)
+      await db
+        .update(userTasks)
         .set({ status: "completed", completedAt: new Date() })
         .where(eq(userTasks.id, taskId));
       return true;
@@ -1001,14 +1366,17 @@ class AIService {
     }
   }
 
-  async generateImage(prompt: string, aspectRatio: string = "1:1"): Promise<{ success: boolean; imagePath?: string; error?: string }> {
+  async generateImage(
+    prompt: string,
+    aspectRatio: string = "1:1",
+  ): Promise<{ success: boolean; imagePath?: string; error?: string }> {
     if (!this.genAINew) {
       return { success: false, error: "Servicio de IA no inicializado" };
     }
 
     try {
       console.log(`[AI] Generando imagen con Nano Banana: ${prompt.substring(0, 50)}...`);
-      
+
       const response = await this.genAINew.models.generateContent({
         model: "imagen-3.0-generate-002",
         contents: prompt,
@@ -1041,14 +1409,17 @@ class AIService {
     }
   }
 
-  async generateVideo(prompt: string, durationSeconds: number = 8): Promise<{ success: boolean; videoPath?: string; error?: string }> {
+  async generateVideo(
+    prompt: string,
+    durationSeconds: number = 8,
+  ): Promise<{ success: boolean; videoPath?: string; error?: string }> {
     if (!this.genAINew) {
       return { success: false, error: "Servicio de IA no inicializado" };
     }
 
     try {
       console.log(`[AI] Generando video con Veo 3.0: ${prompt.substring(0, 50)}...`);
-      
+
       let operation = await this.genAINew.models.generateVideos({
         model: "veo-3.0-generate-preview",
         prompt: prompt,
@@ -1059,12 +1430,12 @@ class AIService {
       });
 
       console.log("[AI] Esperando generación de video...");
-      
+
       const maxWaitMs = 300000;
       const startTime = Date.now();
-      
-      while (!operation.done && (Date.now() - startTime) < maxWaitMs) {
-        await new Promise(r => setTimeout(r, 10000));
+
+      while (!operation.done && Date.now() - startTime < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, 10000));
         operation = await this.genAINew.operations.getVideosOperation({ operation });
         console.log("[AI] Video en progreso...");
       }

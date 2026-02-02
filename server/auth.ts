@@ -4,9 +4,9 @@ import { Express } from "express";
 import session from "express-session";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { users, type User } from "./db/schema";
+import { users, userSkills, skills, type User } from "./db/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import MemoryStore from "memorystore";
 
 const MemoryStoreSession = MemoryStore(session);
@@ -91,6 +91,49 @@ export function setupAuth(app: Express) {
     app.get("/api/user", (req, res) => {
         if (!req.isAuthenticated()) return res.sendStatus(401);
         res.json(req.user);
+    });
+
+    app.post("/api/user/onboarding", async (req, res) => {
+        if (!req.isAuthenticated()) return res.sendStatus(401);
+        const user = req.user as any;
+        const { preferredChannel, enabledSkills } = req.body;
+
+        try {
+            await db.transaction(async (tx) => {
+                await tx.update(users)
+                    .set({
+                        preferredChannel,
+                        onboardingCompleted: true,
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(users.id, user.id));
+
+                if (enabledSkills && enabledSkills.length > 0) {
+                    // Find skills matching selected categories
+                    const matchingSkills = await tx.select().from(skills)
+                        .where(inArray(skills.category, enabledSkills));
+
+                    if (matchingSkills.length > 0) {
+                        // Activate each skill for the user
+                        for (const skill of matchingSkills) {
+                            await tx.insert(userSkills).values({
+                                userId: user.id,
+                                skillId: skill.id,
+                                isEnabled: true,
+                            }).onConflictDoUpdate({
+                                target: [userSkills.userId, userSkills.skillId],
+                                set: { isEnabled: true, updatedAt: new Date() }
+                            });
+                        }
+                    }
+                }
+            });
+
+            res.sendStatus(200);
+        } catch (err) {
+            console.error("Failed to update onboarding", err);
+            res.status(500).json({ message: "Incomplete onboarding update" });
+        }
     });
 }
 

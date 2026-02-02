@@ -15,6 +15,7 @@ export type UiSettings = {
   splitRatio: number; // Sidebar split ratio (0.4 to 0.7, default 0.6)
   navCollapsed: boolean; // Collapsible sidebar state
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
+  preferredChannel?: 'whatsapp' | 'telegram' | 'discord' | 'slack';
 };
 
 export function loadSettings(): UiSettings {
@@ -35,6 +36,7 @@ export function loadSettings(): UiSettings {
     splitRatio: 0.6,
     navCollapsed: false,
     navGroupsCollapsed: {},
+    preferredChannel: undefined,
   };
 
   try {
@@ -55,7 +57,7 @@ export function loadSettings(): UiSettings {
         typeof parsed.lastActiveSessionKey === "string" && parsed.lastActiveSessionKey.trim()
           ? parsed.lastActiveSessionKey.trim()
           : (typeof parsed.sessionKey === "string" && parsed.sessionKey.trim()) ||
-            defaults.lastActiveSessionKey,
+          defaults.lastActiveSessionKey,
       theme:
         parsed.theme === "light" || parsed.theme === "dark" || parsed.theme === "system"
           ? parsed.theme
@@ -72,8 +74,8 @@ export function loadSettings(): UiSettings {
           : defaults.chatShowThinking,
       splitRatio:
         typeof parsed.splitRatio === "number" &&
-        parsed.splitRatio >= 0.4 &&
-        parsed.splitRatio <= 0.7
+          parsed.splitRatio >= 0.4 &&
+          parsed.splitRatio <= 0.7
           ? parsed.splitRatio
           : defaults.splitRatio,
       navCollapsed:
@@ -82,6 +84,13 @@ export function loadSettings(): UiSettings {
         typeof parsed.navGroupsCollapsed === "object" && parsed.navGroupsCollapsed !== null
           ? parsed.navGroupsCollapsed
           : defaults.navGroupsCollapsed,
+      preferredChannel:
+        parsed.preferredChannel === "whatsapp" ||
+          parsed.preferredChannel === "telegram" ||
+          parsed.preferredChannel === "discord" ||
+          parsed.preferredChannel === "slack"
+          ? parsed.preferredChannel
+          : defaults.preferredChannel,
     };
   } catch {
     return defaults;

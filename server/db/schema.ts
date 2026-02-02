@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, jsonb, decimal, uuid, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, jsonb, decimal, uuid, vector, doublePrecision, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { relations } from "drizzle-orm";
 
@@ -9,6 +9,8 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   plan: text("plan", { enum: ["free", "pro", "max"] }).default("free"),
   stripeCustomerId: text("stripe_customer_id"),
+  onboardingCompleted: boolean("onboarding_completed").default(false),
+  preferredChannel: text("preferred_channel", { enum: ["whatsapp", "telegram", "discord", "slack"] }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -64,7 +66,7 @@ export const memory = pgTable("memory", {
   content: text("content").notNull(),
   importance: integer("importance").default(5),
   source: text("source"), // 'user_told', 'inferred_from_email', 'inferred_from_calendar', etc.
-  embedding: vector("embedding", { dimensions: 1536 }), // Para búsqueda semántica
+  embedding: vector("embedding", { dimensions: 768 }), // Para búsqueda semántica (text-embedding-004)
   expiresAt: timestamp("expires_at"), // Algunas memorias pueden expirar
   createdAt: timestamp("created_at").defaultNow(),
   lastAccessedAt: timestamp("last_accessed_at").defaultNow(),
@@ -95,15 +97,45 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Skills habilitadas por usuario
-export const userSkills = pgTable("user_skills", {
+// Datos de salud del usuario
+export const userHealthData = pgTable("user_health_data", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-  skillName: text("skill_name").notNull(),
-  skillConfig: jsonb("skill_config"), // Configuración específica del skill
-  isEnabled: boolean("is_enabled").default(true),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  metricType: text("metric_type").notNull(), // sleep, heart_rate, blood_pressure, glucose, etc.
+  value: doublePrecision("value").notNull(),
+  unit: text("unit"),
+  measuredAt: timestamp("measured_at").notNull(),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+export const userSkills = pgTable("user_skills", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  skillId: uuid("skill_id").references(() => skills.id, { onDelete: "cascade" }).notNull(),
+
+  // Estado
+  isEnabled: boolean("is_enabled").default(false),
+  isConnected: boolean("is_connected").default(false),
+
+  // Credenciales (Encriptadas)
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  apiKey: text("api_key"),
+  credentials: jsonb("credentials"), // Otros pares key-value
+
+  // Configuración específica del usuario
+  config: jsonb("config").default({}),
+
+  // Timestamps
+  connectedAt: timestamp("connected_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  unq: uniqueIndex("user_skill_unq").on(t.userId, t.skillId),
+}));
 
 // Preferencias aprendidas automáticamente
 export const learnedPreferences = pgTable("learned_preferences", {
@@ -147,9 +179,11 @@ export const proactiveTasks = pgTable("proactive_tasks", {
 export const userTasks = pgTable("user_tasks", {
   id: uuid("id").primaryKey().defaultRandom(),
   assistantId: uuid("assistant_id").references(() => assistants.id, { onDelete: "cascade" }),
-  description: text("description").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
   status: text("status", { enum: ["pending", "in_progress", "completed", "cancelled"] }).default("pending"),
   priority: integer("priority").default(5), // 1-10
+  category: text("category"), // 'materiales', 'reportes', etc.
   dueDate: timestamp("due_date"),
   completedAt: timestamp("completed_at"),
   notes: text("notes"),
@@ -169,6 +203,64 @@ export const userProjects = pgTable("user_projects", {
   targetDate: timestamp("target_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// --- Jarvis Upgrade Tables ---
+
+// Skills dinámicos (Registro global compatible con OpenClaw)
+export const skills = pgTable('skills', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').unique().notNull(),
+  version: text('version').notNull().default('1.0.0'),
+  description: text('description'),
+  category: text('category').notNull().default('productivity'),
+  icon: text('icon').default('🔧'),
+
+  // Autenticación
+  authType: text('auth_type', { enum: ['none', 'oauth', 'api_key', 'credentials'] }).notNull().default('none'),
+  oauthProvider: text('oauth_provider'),
+  scopes: text('scopes').array(),
+  envVars: text('env_vars').array(),
+
+  // Requisitos
+  minPlan: text('min_plan', { enum: ['free', 'pro', 'max'] }).default('free'),
+  dependencies: text('dependencies').array(),
+
+  // Metadata & Logic
+  skillMd: text('skill_md'), // Contenido del SKILL.md
+  functions: jsonb('functions'), // Definición de funciones JSON
+
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow()
+});
+
+// Integraciones de usuario extendidas
+export const userIntegrations = pgTable('user_integrations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  service: text('service').notNull(), // 'notion', 'todoist', 'spotify', 'home_assistant', etc.
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  expiresAt: timestamp('expires_at'),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow()
+});
+
+// Historial de acciones (Audit Log)
+export const actionHistory = pgTable('action_history', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  assistantId: uuid('assistant_id').references(() => assistants.id, { onDelete: 'cascade' }),
+  action: text('action').notNull(), // 'generate_image', 'send_email', 'update_calendar', etc.
+  service: text('service'),
+  input: jsonb('input'),
+  output: jsonb('output'),
+  isSuccess: boolean('is_success').default(true),
+  errorMessage: text('error_message'),
+  executionTimeMs: integer('execution_time_ms'),
+  createdAt: timestamp('created_at').defaultNow()
 });
 
 // Relaciones
