@@ -59,6 +59,12 @@ AMUN es el asistente de IA configurado con personalidad específica para Angel/O
 - Enviar mensajes directos
 - Programar publicaciones
 
+### Seguridad del flujo de publicación
+- Borradores vinculados a `userId` (propiedad verificada)
+- `approvalToken` único requerido para confirmar
+- Borradores expiran en 24 horas
+- Validación de propiedad en cada acción
+
 ### Notas de integración
 - Outlook: Usuario rechazó configuración (pendiente si necesario)
 - Instagram/Facebook: Requiere META_ACCESS_TOKEN de Meta Business Suite
