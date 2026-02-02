@@ -37,11 +37,17 @@ class AppleCalendarService {
     }
 
     try {
+      // Try different iCloud CalDAV endpoints
+      const username = process.env.APPLE_CALDAV_USER!.trim();
+      const password = process.env.APPLE_CALDAV_PASS!.trim().replace(/-/g, '');
+      
+      console.log(`[Calendar] Intentando conectar con usuario: ${username.substring(0, 3)}...`);
+      
       this.client = await createDAVClient({
         serverUrl: 'https://caldav.icloud.com',
         credentials: {
-          username: process.env.APPLE_CALDAV_USER!,
-          password: process.env.APPLE_CALDAV_PASS!,
+          username,
+          password,
         },
         authMethod: 'Basic',
         defaultAccountType: 'caldav',

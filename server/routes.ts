@@ -9,6 +9,7 @@ import { emailService } from "../src/services/email.js";
 import { browserService } from "../src/services/browser.js";
 import { gammaService } from "../src/services/gamma.js";
 import { socialService } from "../src/services/social.js";
+import { appleCalendarService } from "../src/services/calendar.js";
 
 export function registerRoutes(app: Express) {
     setupAuth(app);
@@ -443,5 +444,38 @@ export function registerRoutes(app: Express) {
         if (!isDev && !req.isAuthenticated()) return res.sendStatus(401);
         const metrics = await socialService.getMetrics(req.params.platform);
         res.json({ metrics });
+    });
+
+    // Calendar test endpoint
+    app.get("/api/calendar/test", async (req, res) => {
+        try {
+            const configured = appleCalendarService.isConfigured();
+            if (!configured) {
+                return res.json({ 
+                    status: "not_configured",
+                    message: "Faltan APPLE_CALDAV_USER o APPLE_CALDAV_PASS" 
+                });
+            }
+            
+            const initialized = await appleCalendarService.initialize();
+            if (!initialized) {
+                return res.json({ 
+                    status: "connection_failed",
+                    message: "No se pudo conectar. Credenciales inválidas." 
+                });
+            }
+
+            const events = await appleCalendarService.getTodayEvents();
+            res.json({ 
+                status: "connected",
+                message: "Calendario conectado correctamente",
+                todayEvents: events.length
+            });
+        } catch (err: any) {
+            res.json({ 
+                status: "error",
+                message: err.message 
+            });
+        }
     });
 }
