@@ -110,7 +110,7 @@ class AIService {
     this.genAINew = new GoogleGenAI({ apiKey });
     this.model = this.genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
     console.log("[AI] Gemini 3.0 Flash inicializado con personalidad AMUN");
-    console.log("[AI] Imagen 3.0 (imágenes) y Veo 2.0 (videos) habilitados");
+    console.log("[AI] Imagen 3.0 (imágenes) y Veo 3.0 (videos) habilitados");
     this.ensureAmunAssistant();
   }
 
@@ -458,10 +458,10 @@ class AIService {
     }
 
     try {
-      console.log(`[AI] Generando video con Veo 3.1: ${prompt.substring(0, 50)}...`);
+      console.log(`[AI] Generando video con Veo 3.0: ${prompt.substring(0, 50)}...`);
       
       let operation = await this.genAINew.models.generateVideos({
-        model: "veo-2.0-generate-001",
+        model: "veo-3.0-generate-preview",
         prompt: prompt,
         config: {
           aspectRatio: "16:9",
