@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { db } from "../../server/db/index.js";
-import { memory, conversations, messages, userTasks, userProjects } from "../../server/db/schema.js";
+import { memory, conversations, messages, userTasks, userProjects, assistants } from "../../server/db/schema.js";
 import { eq, desc, and, sql } from "drizzle-orm";
 
 const AMUN_PERSONALITY = `
@@ -83,6 +83,13 @@ interface MemoryItem {
   importance: number | null;
 }
 
+function isValidUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+const AMUN_ASSISTANT_NAME = "AMUN";
+
 class AIService {
   private genAI: GoogleGenerativeAI | null = null;
   private model: any = null;
@@ -90,19 +97,60 @@ class AIService {
     string,
     Array<{ role: string; parts: { text: string }[] }>
   > = new Map();
-  private defaultAssistantId = "default";
+  private amunAssistantId: string | null = null;
 
   initialize(apiKey: string) {
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     console.log("[AI] Gemini inicializado con personalidad AMUN");
+    this.ensureAmunAssistant();
   }
 
   isInitialized(): boolean {
     return this.model !== null;
   }
 
+  private async ensureAmunAssistant(): Promise<string> {
+    if (this.amunAssistantId) return this.amunAssistantId;
+    
+    try {
+      const existing = await db
+        .select()
+        .from(assistants)
+        .where(eq(assistants.name, AMUN_ASSISTANT_NAME))
+        .limit(1);
+
+      if (existing.length > 0) {
+        this.amunAssistantId = existing[0].id;
+        console.log(`[AI] Asistente AMUN encontrado: ${this.amunAssistantId}`);
+        return this.amunAssistantId;
+      }
+
+      const [newAssistant] = await db.insert(assistants).values({
+        name: AMUN_ASSISTANT_NAME,
+        personality: AMUN_PERSONALITY,
+        systemPrompt: AMUN_PERSONALITY,
+        defaultLlm: "gemini",
+        language: "es",
+        isActive: true,
+      }).returning();
+
+      this.amunAssistantId = newAssistant.id;
+      console.log(`[AI] Asistente AMUN creado: ${this.amunAssistantId}`);
+      return this.amunAssistantId;
+    } catch (err) {
+      console.error("[AI] Error creando asistente AMUN:", err);
+      return "";
+    }
+  }
+
+  async getAmunAssistantId(): Promise<string> {
+    if (this.amunAssistantId) return this.amunAssistantId;
+    return this.ensureAmunAssistant();
+  }
+
   private async getRelevantMemory(assistantId: string): Promise<MemoryItem[]> {
+    if (!isValidUUID(assistantId)) return [];
     try {
       const memories = await db
         .select({
@@ -123,6 +171,7 @@ class AIService {
   }
 
   private async getActiveTasks(assistantId: string): Promise<any[]> {
+    if (!isValidUUID(assistantId)) return [];
     try {
       const tasks = await db
         .select()
@@ -140,6 +189,7 @@ class AIService {
   }
 
   private async getActiveProjects(assistantId: string): Promise<any[]> {
+    if (!isValidUUID(assistantId)) return [];
     try {
       const projects = await db
         .select()
@@ -156,6 +206,10 @@ class AIService {
   }
 
   private async saveMemory(assistantId: string, category: string, content: string, importance: number = 5) {
+    if (!isValidUUID(assistantId)) {
+      console.log(`[AI] Memoria no guardada (sin assistantId válido): ${category}`);
+      return;
+    }
     try {
       await db.insert(memory).values({
         assistantId,
@@ -172,6 +226,7 @@ class AIService {
   }
 
   private async saveConversation(assistantId: string, channelType: string, chatId: string, userMessage: string, aiResponse: string) {
+    if (!isValidUUID(assistantId)) return;
     try {
       let conv = await db
         .select()
@@ -242,12 +297,16 @@ class AIService {
 
     try {
       const parts = conversationKey.split(":");
-      const assistantId = parts[0] || this.defaultAssistantId;
+      let assistantId = parts[0];
       const channelType = parts[1] || "unknown";
       const chatId = parts[2] || "unknown";
 
+      if (!isValidUUID(assistantId)) {
+        assistantId = await this.getAmunAssistantId();
+      }
+
       const memoryExtract = this.extractMemoryFromMessage(message);
-      if (memoryExtract) {
+      if (memoryExtract && isValidUUID(assistantId)) {
         await this.saveMemory(assistantId, memoryExtract.category, memoryExtract.content, memoryExtract.importance);
       }
 
